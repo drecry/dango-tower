@@ -67,10 +67,10 @@ Wrangler; GitHub Actions checks every push/PR, deploys only when
 
 - `npm run dev` / `npm run build` run `scripts/decode-assets.mjs`
   first (npm predev/prebuild): the character PNGs are stored as
-  `*.png.b64` text files under `assets-src/` because the GitHub
-  connector used for the first upload cannot push binary files. See
-  README.md. The game code only reads the decoded `.png` files under
-  `public/`.
+  `*.png.b64` text files under `assets-src/` (larger ones split into
+  `.png.b64.part-NN` chunks) because the GitHub connector used for the
+  first upload cannot push binary files. See README.md. The game code
+  only reads the decoded `.png` files under `public/`.
 - `npm run build`: prepare-dist (clean dist) -> `tsc --noEmit` ->
   `vite build` -> verify-build (checks the public range, HTML
   references, writes `build-info.json`).
