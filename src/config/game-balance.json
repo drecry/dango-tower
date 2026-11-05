@@ -1,0 +1,26 @@
+{
+  "cameraTargetTopY": 300,
+  "dangoDiameterPx": 64,
+  "dangoPitchPx": 56,
+  "fall": {
+    "gravityPxPerSec2": 2600
+  },
+  "landing": {
+    "landWindowPx": 48,
+    "leanFactor": 0.5,
+    "perfectWindowPx": 10
+  },
+  "missesToGameOver": 3,
+  "platformTopY": 880,
+  "sway": {
+    "amplitudePerStackPx": 6,
+    "baseAmplitudePx": 90,
+    "baseSpeedRadPerSec": 1.6,
+    "matchaSlowDrops": 3,
+    "matchaSlowFactor": 0.6,
+    "maxAmplitudePx": 200,
+    "maxSpeedRadPerSec": 3.2,
+    "speedPerStackRadPerSec": 0.06
+  },
+  "swayY": 120
+}
