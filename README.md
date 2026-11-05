@@ -102,13 +102,16 @@ The seven dango use the real character art from Dango Drop
 > **Why are the images stored as `.png.b64`?**
 > The GitHub connector used for the first upload cannot push binary
 > files, so the exact image bytes are stored as base64 text under
-> `assets-src/` (`assets-src/dango/*.png.b64`, `assets-src/ogp.png.b64`)
-> and decoded back into real PNGs under `public/` by
+> `assets-src/` (`assets-src/assets/dango/*.png.b64`,
+> `assets-src/ogp.png.b64` — larger images are split into numbered
+> `.png.b64.part-NN` chunks because the connector also caps a single
+> upload) and decoded back into real PNGs under `public/` by
 > `scripts/decode-assets.mjs`, which runs automatically before
 > `npm run dev` and `npm run build`. The decoded PNGs are git-ignored
 > build artifacts. A future direct `git push` can replace each
-> `.png.b64` with the real `.png` file under `public/` and delete the
-> decode script — the game code only ever reads the `.png` files.
+> `.png.b64` (and its parts) with the real `.png` file under `public/`
+> and delete the decode script — the game code only ever reads the
+> `.png` files.
 
 ## Open questions
 
