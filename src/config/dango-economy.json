@@ -1,0 +1,22 @@
+{
+  "currency": "DG",
+  "dropRates": {
+    "golden": 0.01,
+    "matcha": 0.04
+  },
+  "prices": {
+    "anko": 2,
+    "golden": 100,
+    "matcha": 10,
+    "mitarashi": 4,
+    "sakura": 3,
+    "shiratama": 1,
+    "yomogi": 5
+  },
+  "tower": {
+    "dangoHeightCm": 4,
+    "heightBonusEvery": 5,
+    "perfectBonus": 5,
+    "sellMultiplier": 3
+  }
+}
