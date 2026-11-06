@@ -113,11 +113,10 @@ The seven dango use the real character art from Dango Drop
 > and delete the decode script — the game code only ever reads the
 > `.png` files.
 
-## Open questions
+## Confirmed decisions (2026-11-06)
 
-- Deployment target: publish at `drecry.com/dango-tower/` (assumed, to
-  confirm) and enable the Cloudflare deploy the same way as Dango Drop.
-- Title-screen designer credit: Dango Drop credits ELLY as the designer.
-  Who should be credited for Dango Tower?
-- Should the DG formula match Dango Drop's scale more closely, or is
-  the current formula (3x price + bonuses) right for a stacking game?
+- Deployment target: publish at `drecry.com/dango-tower/` and enable the
+  Cloudflare deploy the same way as Dango Drop.
+- Title-screen designer credit: ELLY, as in Dango Drop.
+- DG formula: the current formula (3x price + bonuses) is right for a
+  stacking game.
