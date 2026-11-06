@@ -1,12 +1,23 @@
 {
   // Cloudflare Workers Static Assets config for Dango Tower.
-  // Deployment is NOT enabled by default: mirror Dango Drop and set the
-  // CLOUDFLARE_DEPLOY_ENABLED variable in the repo before enabling the
-  // deploy step in .github/workflows/deploy.yml. See docs/deployment.md.
+  // Serves only this game, under drecry.com/dango-tower/ via the routes below,
+  // mirroring Dango Drop. See docs/deployment.md.
   "$schema": "https://developers.cloudflare.com/workers/wrangler/configuration.schema.json",
   "name": "dango-tower",
   "compatibility_date": "2026-11-06",
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "drecry.com/dango-tower*",
+      "zone_name": "drecry.com"
+    },
+    {
+      "pattern": "www.drecry.com/dango-tower*",
+      "zone_name": "drecry.com"
+    }
+  ],
   "assets": {
-    "directory": "./dist/dango-tower"
+    "directory": "./dist",
+    "not_found_handling": "none"
   }
 }
