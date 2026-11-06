@@ -93,3 +93,16 @@ export const DANGO_INFO: Record<DangoKind, DangoInfo> = {
 /** Path of a dango image inside public/ (Vite serves public/ at the base). */
 export const dangoImagePath = (kind: DangoKind): string =>
   `assets/dango/${kind}.png`;
+
+/** Texture key for the shop background illustration. */
+export const BACKGROUND_KEY = 'bg-tower';
+
+/** Path of the background illustration inside public/. */
+export const BACKGROUND_PATH = 'assets/bg-tower.webp';
+
+/**
+ * Cream color of the background art's sky, sampled from the top edge of
+ * the illustration. The GameScene camera uses it to fill the space that
+ * appears above the art as the camera rises with the tower.
+ */
+export const SKY_FILL_COLOR = '#e1e9e5';

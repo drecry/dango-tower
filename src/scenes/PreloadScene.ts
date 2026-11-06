@@ -5,7 +5,7 @@
  */
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from '../config/dimensions';
-import { ALL_DANGO_KINDS, dangoImagePath } from '../constants/assets';
+import { ALL_DANGO_KINDS, BACKGROUND_KEY, BACKGROUND_PATH, dangoImagePath } from '../constants/assets';
 import { FONT_WAIT_TIMEOUT_MS } from '../constants/fonts';
 import { sound } from '../systems/sound';
 
@@ -29,6 +29,8 @@ export class PreloadScene extends Phaser.Scene {
     for (const kind of ALL_DANGO_KINDS) {
       this.load.image(kind, dangoImagePath(kind));
     }
+    // The shop background illustration (Title / Game / Result scenes).
+    this.load.image(BACKGROUND_KEY, BACKGROUND_PATH);
   }
 
   create(): void {

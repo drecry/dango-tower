@@ -8,11 +8,12 @@
  */
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from '../config/dimensions';
-import { ALL_DANGO_KINDS } from '../constants/assets';
+import { ALL_DANGO_KINDS, BACKGROUND_KEY } from '../constants/assets';
 import { loadBest } from '../logic/storage';
 import { sound } from '../systems/sound';
 import {
   COLOR_TEXT,
+  addSoftPanel,
   bodyText,
   headingText,
   makeButton,
@@ -30,6 +31,14 @@ export class TitleScene extends Phaser.Scene {
 
   create(): void {
     const best = loadBest();
+
+    // Shop background illustration (drawn first, behind everything).
+    this.add
+      .image(GAME_WIDTH / 2, GAME_HEIGHT / 2, BACKGROUND_KEY)
+      .setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+    // Soft panels keep the title and credits readable over the art.
+    addSoftPanel(this, GAME_WIDTH / 2, 326, 486, 216, 0.45);
+    addSoftPanel(this, GAME_WIDTH / 2, 916, 420, 88, 0.5);
 
     // Seven friends bobbing above the title.
     ALL_DANGO_KINDS.forEach((kind, i) => {

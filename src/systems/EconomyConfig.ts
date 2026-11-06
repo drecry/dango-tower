@@ -7,7 +7,7 @@
  */
 import economyJson from '../config/dango-economy.json';
 import balanceJson from '../config/game-balance.json';
-import type { Balance, Economy } from '../logic/tower';
+import type { Balance, Economy, SizeSpec } from '../logic/tower';
 import type { DangoKind } from '../constants/assets';
 
 interface EconomyJson {
@@ -22,11 +22,29 @@ interface EconomyJson {
   };
 }
 
+interface PhysicsJson {
+  gravityY: number;
+  restitution: number;
+  friction: number;
+  frictionAir: number;
+  goldenRestitution: number;
+  goldenFriction: number;
+  counterTopY: number;
+  platformCenterX: number;
+  platformWidthPx: number;
+  floorTopY: number;
+  settleSpeed: number;
+  settleTimeMs: number;
+  calmSpeed: number;
+  calmTimeMs: number;
+  resolveTimeoutMs: number;
+  stackSupportMarginPx: number;
+  sizes: SizeSpec[];
+}
+
 interface BalanceJson {
   landing: {
     perfectWindowPx: number;
-    landWindowPx: number;
-    leanFactor: number;
   };
   missesToGameOver: number;
   sway: {
@@ -41,9 +59,7 @@ interface BalanceJson {
   };
   swayY: number;
   platformTopY: number;
-  dangoDiameterPx: number;
-  dangoPitchPx: number;
-  fall: { gravityPxPerSec2: number };
+  physics: PhysicsJson;
   cameraTargetTopY: number;
 }
 
@@ -67,20 +83,17 @@ export const loadBalance = (): Balance => {
   const json = balanceJson as BalanceJson;
   return {
     perfectWindowPx: json.landing.perfectWindowPx,
-    landWindowPx: json.landing.landWindowPx,
-    leanFactor: json.landing.leanFactor,
+    stackSupportMarginPx: json.physics.stackSupportMarginPx,
     missesToGameOver: json.missesToGameOver,
   };
 };
 
-/** Full feel settings for the GameScene (sway, fall, camera). */
+/** Full feel settings for the GameScene (sway, physics, camera). */
 export const loadFeel = (): {
   sway: BalanceJson['sway'];
   swayY: number;
   platformTopY: number;
-  dangoDiameterPx: number;
-  dangoPitchPx: number;
-  gravityPxPerSec2: number;
+  physics: PhysicsJson;
   cameraTargetTopY: number;
 } => {
   const json = balanceJson as BalanceJson;
@@ -88,9 +101,7 @@ export const loadFeel = (): {
     sway: json.sway,
     swayY: json.swayY,
     platformTopY: json.platformTopY,
-    dangoDiameterPx: json.dangoDiameterPx,
-    dangoPitchPx: json.dangoPitchPx,
-    gravityPxPerSec2: json.fall.gravityPxPerSec2,
+    physics: json.physics,
     cameraTargetTopY: json.cameraTargetTopY,
   };
 };

@@ -25,17 +25,17 @@ export class HowToScene extends Phaser.Scene {
       {
         icon: 'shiratama',
         title: '1. Tap to drop',
-        text: 'A dango swings above the plate. Tap anywhere (or press Space) to drop it.',
+        text: 'A dango hovers and sways above the counter. Tap anywhere (or press Space) to drop it.',
       },
       {
         icon: 'sakura',
-        title: '2. Stack them up',
-        text: 'Land on the tower to stack. A perfect center drop earns bonus DG and builds a combo!',
+        title: '2. Balance matters!',
+        text: 'Dango roll and pile up for real — balance matters! Land dead-center on the top dango for a Perfect.',
       },
       {
         icon: 'matcha',
         title: '3. Three misses and it is over',
-        text: 'A dango that falls off the tower is a miss. Three misses end the game.',
+        text: 'A dango that falls off the counter is a miss. Three dango off the counter and the shop closes for today.',
       },
       {
         icon: 'golden',
@@ -73,7 +73,7 @@ export class HowToScene extends Phaser.Scene {
       this,
       GAME_WIDTH / 2,
       y + 52,
-      `DG = price x ${economy.sellMultiplier} + height bonus (+1 DG every ${economy.heightBonusEvery} dango) + Perfect bonus (${economy.perfectBonus} DG x combo)\nMatcha (10 DG) slows the sway. Golden (100 DG) always lands perfectly!`,
+      `DG = price x ${economy.sellMultiplier} + height bonus (+1 DG every ${economy.heightBonusEvery} dango) + Perfect bonus (${economy.perfectBonus} DG x combo)\nMatcha (10 DG) slows the sway for 3 drops. Golden (100 DG) drops straight down with no sway!`,
       17,
     ).setOrigin(0.5, 0);
 

@@ -38,6 +38,16 @@ export const createGameConfig = (): Phaser.Types.Core.GameConfig => {
     input: {
       activePointers: 1,
     },
+    physics: {
+      default: 'matter',
+      matter: {
+        // Dango are real physics bodies in v2: they roll, bounce and
+        // pile on the shop counter. Gravity is tuned per game-balance
+        // at runtime (GameScene sets the world gravity from config).
+        enableSleeping: true,
+        debug: false,
+      },
+    },
     scene: [],
   };
 };

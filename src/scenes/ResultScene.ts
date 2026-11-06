@@ -7,9 +7,10 @@
  * NEW RECORD badge when a record was broken.
  */
 import Phaser from 'phaser';
-import { GAME_WIDTH } from '../config/dimensions';
+import { GAME_WIDTH, GAME_HEIGHT } from '../config/dimensions';
+import { BACKGROUND_KEY } from '../constants/assets';
 import { CURRENCY } from '../systems/EconomyConfig';
-import { bodyText, headingText, makeButton } from './ui';
+import { addSoftPanel, bodyText, headingText, makeButton } from './ui';
 
 export const RESULT_SCENE_KEY = 'ResultScene';
 
@@ -29,6 +30,14 @@ export class ResultScene extends Phaser.Scene {
   }
 
   create(data: ResultData): void {
+    // Shop background illustration (drawn first, behind everything).
+    this.add
+      .image(GAME_WIDTH / 2, GAME_HEIGHT / 2, BACKGROUND_KEY)
+      .setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+    // Soft panels keep the headings and the score readable over the art.
+    addSoftPanel(this, GAME_WIDTH / 2, 122, 440, 140, 0.45);
+    addSoftPanel(this, GAME_WIDTH / 2, 318, 460, 190, 0.5);
+
     headingText(this, GAME_WIDTH / 2, 96, "Today's", 36);
     headingText(this, GAME_WIDTH / 2, 148, 'Dango Tower', 44);
 

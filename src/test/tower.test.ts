@@ -1,38 +1,79 @@
 /**
  * Tests for the Dango Tower rules engine (src/logic/tower.ts).
  * Pure logic — no Phaser, no browser — so Vitest runs them in Node.
+ *
+ * v2 judges drops by where the physics body COMES TO REST (judgeRest),
+ * not by the release position: supported at/above counter level stacks,
+ * below counter level is a miss, dead-center over the previous tower
+ * top is a Perfect.
  */
 import { describe, expect, it } from 'vitest';
 import {
-  applyDrop,
+  applyResult,
   DEFAULT_BALANCE,
   DEFAULT_ECONOMY,
+  DEFAULT_SIZES,
   heightBonus,
   initialState,
-  judgeLanding,
+  judgeRest,
   landingDG,
-  nextTopCenterX,
   rollNextKind,
+  rollNextSize,
+  rollSpawn,
   towerHeightCm,
+  type RestOutcome,
 } from '../logic/tower';
 
-describe('judgeLanding', () => {
-  it('perfect within the perfect window', () => {
-    expect(judgeLanding('shiratama', 0)).toBe('perfect');
-    expect(judgeLanding('shiratama', 10)).toBe('perfect');
-    expect(judgeLanding('shiratama', -10)).toBe('perfect');
+const COUNTER_TOP_Y = 859;
+const ON_COUNTER_Y = COUNTER_TOP_Y - 35; // center of a dango on the counter
+const ON_FLOOR_Y = 946 - 35; // center of a dango on the street
+
+const rest = (overrides: Partial<RestOutcome>): RestOutcome => ({
+  restX: 270,
+  restY: ON_COUNTER_Y,
+  counterTopY: COUNTER_TOP_Y,
+  referenceX: 270,
+  ...overrides,
+});
+
+describe('judgeRest — judged by where the dango comes to rest', () => {
+  it('perfect when resting dead-center over the reference', () => {
+    expect(judgeRest(rest({}))).toBe('perfect');
+    expect(judgeRest(rest({ restX: 270 + 14 }))).toBe('perfect');
+    expect(judgeRest(rest({ restX: 270 - 14 }))).toBe('perfect');
   });
 
-  it('lands within the land window, misses outside it', () => {
-    expect(judgeLanding('shiratama', 11)).toBe('land');
-    expect(judgeLanding('shiratama', 48)).toBe('land');
-    expect(judgeLanding('shiratama', 49)).toBe('miss');
-    expect(judgeLanding('shiratama', -200)).toBe('miss');
+  it('a plain stack when supported but off-center', () => {
+    expect(judgeRest(rest({ restX: 270 + 15 }))).toBe('land');
+    expect(judgeRest(rest({ restX: 120 }))).toBe('land');
+    // Higher up the tower, against a moved reference.
+    expect(
+      judgeRest(rest({ restX: 300, restY: 600, referenceX: 280 })),
+    ).toBe('land');
+    expect(
+      judgeRest(rest({ restX: 300, restY: 600, referenceX: 292 })),
+    ).toBe('perfect');
   });
 
-  it('golden always lands perfectly', () => {
-    expect(judgeLanding('golden', 200)).toBe('perfect');
-    expect(judgeLanding('golden', -500)).toBe('perfect');
+  it('a miss when it comes to rest below counter support level', () => {
+    // On the street in front of the shop.
+    expect(judgeRest(rest({ restY: ON_FLOOR_Y }))).toBe('miss');
+    // Slipped halfway off: center sank below the support margin.
+    expect(
+      judgeRest(
+        rest({ restY: COUNTER_TOP_Y - DEFAULT_BALANCE.stackSupportMarginPx + 1 }),
+      ),
+    ).toBe('miss');
+    // Exactly at the support margin still counts as supported.
+    expect(
+      judgeRest(
+        rest({ restY: COUNTER_TOP_Y - DEFAULT_BALANCE.stackSupportMarginPx }),
+      ),
+    ).toBe('perfect');
+  });
+
+  it('a miss is a miss even when it stops dead-center', () => {
+    expect(judgeRest(rest({ restX: 270, restY: ON_FLOOR_Y }))).toBe('miss');
   });
 });
 
@@ -74,20 +115,49 @@ describe('rollNextKind', () => {
 
   it('rolls a regular dango otherwise', () => {
     const kind = rollNextKind(DEFAULT_ECONOMY, () => 0.5);
-    expect([
-      'shiratama',
-      'anko',
-      'sakura',
-      'mitarashi',
-      'yomogi',
-    ]).toContain(kind);
+    expect(['shiratama', 'anko', 'sakura', 'mitarashi', 'yomogi']).toContain(
+      kind,
+    );
   });
 });
 
-describe('nextTopCenterX — the tower leans', () => {
-  it('moves half the offset toward the dropped dango', () => {
-    expect(nextTopCenterX(270, 290)).toBe(280);
-    expect(nextTopCenterX(270, 270)).toBe(270);
+describe('rollNextSize (v2: sizes drawn independently of kind)', () => {
+  it('ships three sizes: small 28 / medium 36 / large 46 at 30/50/20', () => {
+    expect(DEFAULT_SIZES).toEqual([
+      { size: 'small', radiusPx: 28, weight: 0.3 },
+      { size: 'medium', radiusPx: 36, weight: 0.5 },
+      { size: 'large', radiusPx: 46, weight: 0.2 },
+    ]);
+  });
+
+  it('walks the weight bands in order', () => {
+    expect(rollNextSize(DEFAULT_SIZES, () => 0)).toBe('small');
+    expect(rollNextSize(DEFAULT_SIZES, () => 0.29)).toBe('small');
+    expect(rollNextSize(DEFAULT_SIZES, () => 0.3)).toBe('medium');
+    expect(rollNextSize(DEFAULT_SIZES, () => 0.79)).toBe('medium');
+    expect(rollNextSize(DEFAULT_SIZES, () => 0.8)).toBe('large');
+    expect(rollNextSize(DEFAULT_SIZES, () => 0.999)).toBe('large');
+  });
+});
+
+describe('rollSpawn (kind and size are independent draws)', () => {
+  it('can pair any kind with any size', () => {
+    // random draws: kind band 0.0 -> golden, size draw 0.9 -> large
+    const draws = [0.0, 0.9];
+    const entry = rollSpawn(
+      DEFAULT_ECONOMY,
+      DEFAULT_SIZES,
+      () => draws.shift() ?? 0,
+    );
+    expect(entry).toEqual({ kind: 'golden', size: 'large' });
+    // kind band 0.5 -> regular kind, index draw 0 -> shiratama; size 0.1 -> small
+    const draws2 = [0.5, 0, 0.1];
+    const entry2 = rollSpawn(
+      DEFAULT_ECONOMY,
+      DEFAULT_SIZES,
+      () => draws2.shift() ?? 0,
+    );
+    expect(entry2).toEqual({ kind: 'shiratama', size: 'small' });
   });
 });
 
@@ -99,13 +169,14 @@ describe('towerHeightCm', () => {
   });
 });
 
-describe('applyDrop — full game flow', () => {
+describe('applyResult — full game flow', () => {
   it('stacks landings, accrues DG, ends after 3 misses', () => {
-    let state = initialState(270);
+    let state = initialState();
     // Three perfect shiratama drops in a row, dead center.
     for (const combo of [1, 2, 3]) {
-      const r = applyDrop(state, 'shiratama', 270);
-      expect(r.landing).toBe('perfect');
+      const landing = judgeRest(rest({}));
+      expect(landing).toBe('perfect');
+      const r = applyResult(state, 'shiratama', landing);
       expect(r.earnedDG).toBe(3 + 5 * combo);
       state = r.state;
     }
@@ -115,16 +186,18 @@ describe('applyDrop — full game flow', () => {
     expect(state.over).toBe(false);
 
     // A plain landing breaks the combo.
-    const plain = applyDrop(state, 'anko', 270 + 30);
-    expect(plain.landing).toBe('land');
+    const plainLanding = judgeRest(rest({ restX: 270 + 30, referenceX: 270 }));
+    expect(plainLanding).toBe('land');
+    const plain = applyResult(state, 'anko', plainLanding);
     expect(plain.earnedDG).toBe(6); // 2x3, no height bonus at 4 stacked
     state = plain.state;
     expect(state.perfectCombo).toBe(0);
 
     // Three misses in a row end the game.
     for (let i = 0; i < 3; i++) {
-      const r = applyDrop(state, 'sakura', 270 + 200);
-      expect(r.landing).toBe('miss');
+      const landing = judgeRest(rest({ restY: ON_FLOOR_Y }));
+      expect(landing).toBe('miss');
+      const r = applyResult(state, 'sakura', landing);
       expect(r.earnedDG).toBe(0);
       state = r.state;
     }
@@ -132,16 +205,34 @@ describe('applyDrop — full game flow', () => {
     expect(state.over).toBe(true);
   });
 
-  it('a golden drop far off-center still lands perfectly', () => {
-    const state = initialState(270);
-    const r = applyDrop(state, 'golden', 270 + 300);
-    expect(r.landing).toBe('perfect');
+  it('a golden resting dead-center earns the full 305 DG', () => {
+    const state = initialState();
+    const landing = judgeRest(rest({}));
+    const r = applyResult(state, 'golden', landing);
+    expect(landing).toBe('perfect');
     expect(r.earnedDG).toBe(305);
     expect(r.state.over).toBe(false);
   });
+
+  it('a golden that slips off the counter is a miss like any other', () => {
+    const state = initialState();
+    const landing = judgeRest(rest({ restY: ON_FLOOR_Y }));
+    const r = applyResult(state, 'golden', landing);
+    expect(landing).toBe('miss');
+    expect(r.earnedDG).toBe(0);
+    expect(r.state.misses).toBe(1);
+  });
+
+  it('does not mutate the input state', () => {
+    const state = initialState();
+    const r = applyResult(state, 'anko', 'land');
+    expect(state.stacked).toBe(0);
+    expect(state.totalDG).toBe(0);
+    expect(r.state.stacked).toBe(1);
+  });
 });
 
-describe('simulated play-through — 30 drops with a seeded RNG', () => {
+describe('simulated play-through — 30+ drops with fake physics rests', () => {
   it('plays a whole game: DG accrues, height grows, game ends', () => {
     // Deterministic pseudo-random generator (mulberry32).
     let seed = 42;
@@ -153,16 +244,30 @@ describe('simulated play-through — 30 drops with a seeded RNG', () => {
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
 
-    let state = initialState(270);
+    let state = initialState();
+    let referenceX = 270; // the counter center, then the tower top
     let drops = 0;
-    // A decent player whose aim gets worse as the tower (and the sway)
-    // grows — so misses eventually happen and the game ends.
+    // A decent player whose aim gets worse as the tower grows: drops
+    // land near the reference with growing error; wild ones roll off
+    // the counter (rest below counter level) and count as misses.
     while (!state.over && drops < 200) {
       const kind = rollNextKind(DEFAULT_ECONOMY, random);
-      const errorRange = 60 + state.stacked * 8; // +/- px
-      const aimError = (random() - 0.5) * errorRange;
-      const r = applyDrop(state, kind, state.topCenterX + aimError);
+      const errorRange = 30 + state.stacked * 14; // +/- px
+      const aimError = (random() - 0.5) * 2 * errorRange;
+      const restX = referenceX + aimError;
+      const offCounter = Math.abs(restX - 270) > 235;
+      const restY = offCounter
+        ? ON_FLOOR_Y
+        : ON_COUNTER_Y - state.stacked * 52;
+      const landing = judgeRest({
+        restX,
+        restY,
+        counterTopY: COUNTER_TOP_Y,
+        referenceX,
+      });
+      const r = applyResult(state, kind, landing);
       state = r.state;
+      if (landing !== 'miss') referenceX = restX;
       drops += 1;
     }
     expect(drops).toBeLessThan(200);
