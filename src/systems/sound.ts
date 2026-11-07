@@ -48,8 +48,13 @@ type Boing = {
   type?: OscillatorType;
 };
 
+/** Effects master level. The BGM master runs at 0.5 (bgm.ts), so
+ * effects sit clearly on top of the music (v3.3 mix). */
+const SE_MASTER_GAIN = 1.3;
+
 export class SoundFX {
   private ctx: AudioContext | null = null;
+  private master: GainNode | null = null;
   private muted: boolean;
 
   constructor() {
@@ -90,10 +95,22 @@ export class SoundFX {
     return this.ctx;
   }
 
+  /** The effects master gain node, created with the context. */
+  private out(): GainNode | null {
+    this.unlock();
+    if (!this.ctx) return null;
+    if (!this.master) {
+      this.master = this.ctx.createGain();
+      this.master.gain.value = SE_MASTER_GAIN;
+      this.master.connect(this.ctx.destination);
+    }
+    return this.master;
+  }
+
   private play(tones: Tone[]): void {
     if (this.muted) return;
-    this.unlock();
-    if (!this.ctx) return;
+    const out = this.out();
+    if (!this.ctx || !out) return;
     try {
       const now = this.ctx.currentTime;
       for (const tone of tones) {
@@ -111,7 +128,7 @@ export class SoundFX {
         gain.gain.setValueAtTime(0.0001, start);
         gain.gain.exponentialRampToValueAtTime(tone.vol, start + 0.01);
         gain.gain.exponentialRampToValueAtTime(0.0001, start + tone.dur);
-        osc.connect(gain).connect(this.ctx.destination);
+        osc.connect(gain).connect(out);
         osc.start(start);
         osc.stop(start + tone.dur + 0.05);
       }
@@ -127,8 +144,8 @@ export class SoundFX {
    */
   private playBoing(boing: Boing): void {
     if (this.muted) return;
-    this.unlock();
-    if (!this.ctx) return;
+    const out = this.out();
+    if (!this.ctx || !out) return;
     try {
       const start = this.ctx.currentTime + boing.at;
       const osc = this.ctx.createOscillator();
@@ -147,7 +164,7 @@ export class SoundFX {
       gain.gain.setValueAtTime(0.0001, start);
       gain.gain.exponentialRampToValueAtTime(boing.vol, start + 0.015);
       gain.gain.exponentialRampToValueAtTime(0.0001, start + boing.dur);
-      osc.connect(gain).connect(this.ctx.destination);
+      osc.connect(gain).connect(out);
       osc.start(start);
       osc.stop(start + boing.dur + 0.05);
     } catch {

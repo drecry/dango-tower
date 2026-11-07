@@ -280,7 +280,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    bgm.start();
+    bgm.start('game');
     this.economy = loadEconomy();
     this.balance = loadBalance();
     this.feel = loadFeel();
