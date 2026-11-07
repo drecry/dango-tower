@@ -1,1 +1,83 @@
-{"cameraTargetTopY":300,"landing":{"perfectWindowPx":14},"missesToGameOver":3,"physics":{"calmSpeed":1.1,"calmTimeMs":320,"counterTopY":859,"floorTopY":946,"friction":0.6,"frictionAir":0.015,"gravityY":1.15,"platformCenterX":270,"platformWidthPx":470,"resolveTimeoutMs":5000,"restitution":0.15,"settleSpeed":0.35,"settleTimeMs":450,"sizes":[{"radiusPx":28,"size":"small","weight":0.3},{"radiusPx":36,"size":"medium","weight":0.5},{"radiusPx":46,"size":"large","weight":0.2}],"stackSupportMarginPx":17,"traits":{"anko":{"densityFactor":1.8},"golden":{"friction":0.95,"restitution":0.05},"matcha":{},"mitarashi":{"friction":0.95,"frictionStatic":2.0,"restitution":0.05},"sakura":{"densityFactor":0.55},"shiratama":{},"yomogi":{"angularDampingPerSec":6,"frictionAir":0.05,"restitution":0.05}}},"platformTopY":859,"sway":{"amplitudePerStackPx":6,"baseAmplitudePx":90,"baseSpeedRadPerSec":1.6,"matchaSlowDrops":3,"matchaSlowFactor":0.6,"maxAmplitudePx":200,"maxSpeedRadPerSec":3.2,"speedPerStackRadPerSec":0.06},"swayY":120,"timer":{"matchaBonusSeconds":3,"spawnDelayMs":700,"startSeconds":60}}
+{
+  "cameraTargetTopY": 300,
+  "landing": {
+    "perfectWindowPx": 14
+  },
+  "missesToGameOver": 3,
+  "physics": {
+    "calmSpeed": 1.1,
+    "calmTimeMs": 320,
+    "counterTopY": 859,
+    "floorTopY": 946,
+    "friction": 0.6,
+    "frictionAir": 0.015,
+    "gravityY": 1.15,
+    "platformCenterX": 270,
+    "platformWidthPx": 470,
+    "resolveTimeoutMs": 5000,
+    "restitution": 0.15,
+    "settleSpeed": 0.35,
+    "settleTimeMs": 450,
+    "sizes": [
+      {
+        "radiusPx": 28,
+        "size": "small",
+        "weight": 0.3
+      },
+      {
+        "radiusPx": 36,
+        "size": "medium",
+        "weight": 0.5
+      },
+      {
+        "radiusPx": 46,
+        "size": "large",
+        "weight": 0.2
+      }
+    ],
+    "stackSupportMarginPx": 17,
+    "traits": {
+      "anko": {
+        "densityFactor": 1.8
+      },
+      "golden": {
+        "friction": 0.95,
+        "restitution": 0.35
+      },
+      "matcha": {
+        "restitution": 0.5
+      },
+      "mitarashi": {
+        "friction": 0.95,
+        "frictionStatic": 2.0,
+        "restitution": 0.05
+      },
+      "sakura": {
+        "densityFactor": 0.55
+      },
+      "shiratama": {},
+      "yomogi": {
+        "angularDampingPerSec": 6,
+        "frictionAir": 0.05,
+        "restitution": 0.05
+      }
+    }
+  },
+  "platformTopY": 859,
+  "sway": {
+    "amplitudePerStackPx": 6,
+    "baseAmplitudePx": 90,
+    "baseSpeedRadPerSec": 1.6,
+    "matchaSlowDrops": 3,
+    "matchaSlowFactor": 0.6,
+    "maxAmplitudePx": 200,
+    "maxSpeedRadPerSec": 3.2,
+    "speedPerStackRadPerSec": 0.06
+  },
+  "swayY": 120,
+  "timer": {
+    "matchaBonusSeconds": 3,
+    "spawnDelayMs": 700,
+    "startSeconds": 60
+  }
+}

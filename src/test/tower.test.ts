@@ -428,9 +428,15 @@ describe('per-kind traits (v3: physics personality)', () => {
     expect(Object.keys(traits).sort()).toEqual([...ALL_DANGO_KINDS].sort());
   });
 
-  it('shiratama and matcha keep the plain baseline', () => {
+  it('shiratama keeps the plain baseline', () => {
     expect(bodyParamsFor('shiratama', base, traits)).toEqual(base);
-    expect(bodyParamsFor('matcha', base, traits)).toEqual(base);
+  });
+
+  it('matcha is bouncy (v3.5): big restitution, rest baseline', () => {
+    const m = bodyParamsFor('matcha', base, traits);
+    expect(m.restitution).toBe(0.5);
+    expect(m.friction).toBe(base.friction);
+    expect(m.density).toBe(base.density);
   });
 
   it('sakura is light and anko is heavy (density only)', () => {
@@ -457,9 +463,9 @@ describe('per-kind traits (v3: physics personality)', () => {
     expect(y.angularDampingPerSec).toBeGreaterThan(0);
   });
 
-  it('golden keeps its v2 grip (moved into the trait table)', () => {
+  it('golden grips but bounces (v3.5): high friction, lively restitution', () => {
     const g = bodyParamsFor('golden', base, traits);
     expect(g.friction).toBe(0.95);
-    expect(g.restitution).toBe(0.05);
+    expect(g.restitution).toBe(0.35);
   });
 });

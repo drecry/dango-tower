@@ -99,6 +99,7 @@ interface MatterBodyLike {
   isSleeping: boolean;
   isStatic: boolean;
   position: { x: number; y: number };
+  velocity: { x: number; y: number };
   collisionFilter: { mask: number };
   gameObject: Phaser.GameObjects.GameObject | null;
 }
@@ -714,7 +715,7 @@ export class GameScene extends Phaser.Scene {
       angularDampingPerSec: params.angularDampingPerSec,
       size: entry.size,
     });
-    sound.drop();
+    sound.drop(kind, entry.size);
 
     // Fast-drop pipeline: the next spawner activates on a fixed delay,
     // without waiting for this dango to settle.
@@ -1063,14 +1064,35 @@ export class GameScene extends Phaser.Scene {
             impactNow >= threshold &&
             record.elapsedMs - record.lastPonMs >= 130
           ) {
-            if (other.label === 'dango') sound.ponDango(impactNow);
-            else sound.pon(impactNow);
+            if (other.label === 'dango') {
+              sound.ponDango(impactNow, record.kind, record.size);
+            } else {
+              sound.pon(impactNow, record.kind, record.size);
+            }
             record.ponPlayed = true;
             record.lastPonMs = record.elapsedMs;
           }
           if (!record.collided) {
             record.collided = true;
             const impact = Math.max(record.peakSpeed, body.speed);
+            // Bounce assist (v3.5): Matter's restitution alone
+            // barely bounces at this game's speeds (measured: 0.15
+            // vs 0.5 restitution both rebounded ~14 px), so matcha
+            // and golden get a scripted spring off their FIRST
+            // solid impact — that is what makes them feel bouncy
+            // and hard to stack. Later hits use plain physics.
+            const bounceFactor =
+              record.kind === 'matcha'
+                ? 0.5
+                : record.kind === 'golden'
+                  ? 0.42
+                  : 0;
+            if (bounceFactor > 0 && impact >= 6) {
+              img.setVelocity(
+                body.velocity.x * 0.8,
+                -Math.max(3.5, impact * bounceFactor),
+              );
+            }
             if (impact >= 4) this.squash(img, impact);
             if (impact >= 11) {
               this.nudgeAmp = Math.min(7, 2.5 + (impact - 11) * 0.5);

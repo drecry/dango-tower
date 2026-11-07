@@ -13,6 +13,14 @@
  *   "poyoon" whose depth/length follows the impact.
  * - Every dango kind has its own little voice when it stacks,
  *   pitched by size (small = higher, large = deeper).
+ *
+ * v3.5 — per-kind impact colors and falling variety:
+ * - The impact boings themselves now carry each kind's character
+ *   (anko deep, sakura airy, mitarashi sticky-short, golden
+ *   sparkly...), still one shared boing shape so the family sounds
+ *   related. Size pitches the boing too.
+ * - The falling whistle comes in three patterns (long descent,
+ *   quick "pyu", two-step), pitched by kind and size.
  */
 import type { DangoKind } from '../constants/assets';
 import { loadMuted, saveMuted } from '../logic/storage';
@@ -51,6 +59,32 @@ type Boing = {
 /** Effects master level. The BGM master runs at 0.5 (bgm.ts), so
  * effects sit clearly on top of the music (v3.3 mix). */
 const SE_MASTER_GAIN = 1.3;
+
+/**
+ * Per-kind impact character (v3.5). One shared boing shape, colored
+ * per kind: `mult` pitches it, `dur` stretches it, `extra` adds a
+ * signature garnish. The drop whistle uses `mult` too, so a kind
+ * sounds like itself falling and landing.
+ */
+const IMPACT_PROFILES: Record<
+  DangoKind,
+  { mult: number; dur: number; extra?: 'airy' | 'thunk' | 'sparkle' }
+> = {
+  shiratama: { mult: 1, dur: 1 },
+  anko: { mult: 0.68, dur: 1.3 },
+  sakura: { mult: 1.12, dur: 1.05, extra: 'airy' },
+  mitarashi: { mult: 0.82, dur: 0.6, extra: 'thunk' },
+  yomogi: { mult: 0.9, dur: 0.9 },
+  matcha: { mult: 1.22, dur: 0.95 },
+  golden: { mult: 1.3, dur: 1.1, extra: 'sparkle' },
+};
+
+/** Size pitch for impacts and whistles (voices use their own). */
+const SIZE_PITCH: Record<DangoSize, number> = {
+  small: 1.18,
+  medium: 1,
+  large: 0.85,
+};
 
 export class SoundFX {
   private ctx: AudioContext | null = null;
@@ -180,11 +214,58 @@ export class SoundFX {
    * Letting go of a dango: a soft "poi!" pop, then a gentle falling
    * whistle ("hyuuun") that fades as it drops.
    */
-  drop(): void {
-    this.play([
-      { freq: 560, slideTo: 300, at: 0, dur: 0.09, type: 'sine', vol: 0.16 },
-      { freq: 940, slideTo: 430, at: 0.03, dur: 0.38, type: 'sine', vol: 0.045 },
-    ]);
+  drop(kind: DangoKind = 'shiratama', size: DangoSize = 'medium'): void {
+    const scale = IMPACT_PROFILES[kind].mult * SIZE_PITCH[size];
+    const tones: Tone[] = [
+      {
+        freq: 560 * scale,
+        slideTo: 300 * scale,
+        at: 0,
+        dur: 0.09,
+        type: 'sine',
+        vol: 0.16,
+      },
+    ];
+    const r = Math.random();
+    if (r < 0.5) {
+      tones.push({
+        freq: 940 * scale,
+        slideTo: 430 * scale,
+        at: 0.03,
+        dur: 0.38,
+        type: 'sine',
+        vol: 0.045,
+      });
+    } else if (r < 0.8) {
+      tones.push({
+        freq: 1250 * scale,
+        slideTo: 680 * scale,
+        at: 0.02,
+        dur: 0.16,
+        type: 'sine',
+        vol: 0.04,
+      });
+    } else {
+      tones.push(
+        {
+          freq: 920 * scale,
+          slideTo: 650 * scale,
+          at: 0.03,
+          dur: 0.13,
+          type: 'sine',
+          vol: 0.04,
+        },
+        {
+          freq: 650 * scale,
+          slideTo: 470 * scale,
+          at: 0.15,
+          dur: 0.16,
+          type: 'sine',
+          vol: 0.038,
+        },
+      );
+    }
+    this.play(tones);
   }
 
   /** A gentle landing when no impact sound played first. */
@@ -199,14 +280,19 @@ export class SoundFX {
    * touch is just a small "poyo". A slight random detune keeps
    * repeated hits from sounding stamped from the same mold.
    */
-  pon(strength: number): void {
+  pon(
+    strength: number,
+    kind: DangoKind = 'shiratama',
+    size: DangoSize = 'medium',
+  ): void {
     const s = Math.min(1, Math.max(0, strength / 14));
     const detune = 0.96 + Math.random() * 0.08;
-    const base = (275 - s * 65) * detune;
+    const profile = IMPACT_PROFILES[kind];
+    const base = (275 - s * 65) * detune * profile.mult * SIZE_PITCH[size];
     this.playBoing({
       base,
       at: 0,
-      dur: 0.24 + s * 0.3,
+      dur: (0.24 + s * 0.3) * profile.dur,
       vol: 0.15 + s * 0.15,
       wobbleHz: 7.5 - s * 1.5,
     });
@@ -219,21 +305,28 @@ export class SoundFX {
         vol: 0.05,
       },
     ]);
+    this.impactGarnish(kind, base);
   }
 
   /**
    * "Boyoon" when a falling dango bumps into ANOTHER dango (v3.4):
    * rounder and longer than the counter's `pon` — two soft things
-   * meeting. Same strength scaling and detune idea as `pon`.
+   * meeting. Same strength scaling and detune idea as `pon`, and
+   * (v3.5) the same per-kind coloring.
    */
-  ponDango(strength: number): void {
+  ponDango(
+    strength: number,
+    kind: DangoKind = 'shiratama',
+    size: DangoSize = 'medium',
+  ): void {
     const s = Math.min(1, Math.max(0, strength / 14));
     const detune = 0.95 + Math.random() * 0.1;
-    const base = (245 - s * 55) * detune;
+    const profile = IMPACT_PROFILES[kind];
+    const base = (245 - s * 55) * detune * profile.mult * SIZE_PITCH[size];
     this.playBoing({
       base,
       at: 0,
-      dur: 0.34 + s * 0.38,
+      dur: (0.34 + s * 0.38) * profile.dur,
       vol: 0.17 + s * 0.15,
       wobbleHz: 6 - s,
     });
@@ -246,6 +339,36 @@ export class SoundFX {
         vol: 0.05,
       },
     ]);
+    this.impactGarnish(kind, base);
+  }
+
+  /** The per-kind signature garnish on an impact boing (v3.5). */
+  private impactGarnish(kind: DangoKind, base: number): void {
+    const extra = IMPACT_PROFILES[kind].extra;
+    if (extra === 'airy') {
+      // Sakura: a soft breath of air over the boing.
+      this.play([
+        { freq: base * 3, at: 0.01, dur: 0.22, type: 'sine', vol: 0.03 },
+      ]);
+    } else if (extra === 'thunk') {
+      // Mitarashi: a short syrupy thunk under the boing.
+      this.play([
+        {
+          freq: 160,
+          slideTo: 78,
+          at: 0,
+          dur: 0.09,
+          type: 'sine',
+          vol: 0.07,
+        },
+      ]);
+    } else if (extra === 'sparkle') {
+      // Golden: two tiny sparkles after the boing.
+      this.play([
+        { freq: base * 3, at: 0.02, dur: 0.09, type: 'sine', vol: 0.04 },
+        { freq: base * 4, at: 0.08, dur: 0.11, type: 'sine', vol: 0.035 },
+      ]);
+    }
   }
 
   /**

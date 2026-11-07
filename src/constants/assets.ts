@@ -87,14 +87,14 @@ export const DANGO_INFO: Record<DangoKind, DangoInfo> = {
     kind: 'matcha',
     name: 'Matcha',
     intro: 'The Shy One. Rarely comes to the shop, but works the hardest when she does.',
-    trait: 'Slows the sway. +3 seconds when it stacks!',
+    trait: 'Bouncy! Slows the sway. +3 sec when it stacks.',
     color: '#5a8a4a',
   },
   golden: {
     kind: 'golden',
     name: 'Golden',
     intro: 'A rare shining dango. Worth a fortune at the shop!',
-    trait: 'Rare and precious. Always drops true.',
+    trait: 'Bouncy! Rare and precious — worth 100 DG.',
     color: '#f5c542',
   },
 };
