@@ -5,7 +5,17 @@
  */
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from '../config/dimensions';
-import { ALL_DANGO_KINDS, BACKGROUND_KEY, BACKGROUND_PATH, dangoImagePath } from '../constants/assets';
+import {
+  ALL_DANGO_KINDS,
+  BACKGROUND_KEY,
+  BACKGROUND_PATH,
+  dangoExpressionPath,
+  dangoImagePath,
+} from '../constants/assets';
+import {
+  DANGO_EXPRESSIONS,
+  EXPRESSIVE_KINDS,
+} from '../logic/tower';
 import { FONT_WAIT_TIMEOUT_MS } from '../constants/fonts';
 import { sound } from '../systems/sound';
 
@@ -28,6 +38,16 @@ export class PreloadScene extends Phaser.Scene {
     this.load.setBaseURL(import.meta.env.BASE_URL);
     for (const kind of ALL_DANGO_KINDS) {
       this.load.image(kind, dangoImagePath(kind));
+    }
+    // Expression variants (v3): three friends x three faces. Keys use
+    // the same "kind-expression" shape textureKeyForSpawn produces.
+    for (const kind of EXPRESSIVE_KINDS) {
+      for (const expression of DANGO_EXPRESSIONS) {
+        this.load.image(
+          `${kind}-${expression}`,
+          dangoExpressionPath(kind, expression),
+        );
+      }
     }
     // The shop background illustration (Title / Game / Result scenes).
     this.load.image(BACKGROUND_KEY, BACKGROUND_PATH);
@@ -79,10 +99,11 @@ export class PreloadScene extends Phaser.Scene {
     }
     if (requestedScene === 'result') {
       this.scene.start('ResultScene', {
-        dg: 248,
+        dg: 320,
+        heightBonusDG: 72,
         stacked: 18,
         heightCm: 72,
-        bestDG: 248,
+        bestDG: 320,
         bestHeight: 72,
         bestStacked: 18,
         isNewRecord: true,

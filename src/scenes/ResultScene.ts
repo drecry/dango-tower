@@ -15,7 +15,10 @@ import { addSoftPanel, bodyText, headingText, makeButton } from './ui';
 export const RESULT_SCENE_KEY = 'ResultScene';
 
 export interface ResultData {
+  /** Total DG for the run, INCLUDING the Final Height Bonus. */
   dg: number;
+  /** Final Height Bonus portion of the total (v3), for the breakdown. */
+  heightBonusDG: number;
   stacked: number;
   heightCm: number;
   bestDG: number;
@@ -77,9 +80,9 @@ export class ResultScene extends Phaser.Scene {
 
     const panel = this.add.rectangle(
       GAME_WIDTH / 2,
-      508,
+      516,
       420,
-      190,
+      224,
       0xfff7e6,
       1,
     );
@@ -87,11 +90,15 @@ export class ResultScene extends Phaser.Scene {
     const rows: [string, string][] = [
       ['Dango stacked', `${data.stacked}`],
       ['Tower height', `${data.heightCm} cm`],
+      [
+        `Height Bonus (${data.heightCm} cm)`,
+        `+${data.heightBonusDG} ${CURRENCY}`,
+      ],
       ['Best DG', `${data.bestDG} ${CURRENCY}`],
       ['Best height', `${data.bestHeight} cm`],
     ];
     rows.forEach(([label, value], i) => {
-      const y = 448 + i * 34;
+      const y = 446 + i * 36;
       this.add
         .text(GAME_WIDTH / 2 - 190, y, label, {
           fontFamily: '"Zen Maru Gothic", sans-serif',

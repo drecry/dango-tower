@@ -9,20 +9,34 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  addTimerBonus,
   applyResult,
+  BASE_BODY_PARAMS,
+  bodyParamsFor,
   DEFAULT_BALANCE,
   DEFAULT_ECONOMY,
   DEFAULT_SIZES,
+  EXPRESSION_BY_SIZE,
+  EXPRESSIVE_KINDS,
+  finalHeightBonus,
   heightBonus,
+  heightCmFromPx,
   initialState,
+  initialTimer,
   judgeRest,
   landingDG,
   rollNextKind,
   rollNextSize,
   rollSpawn,
+  startTimer,
+  textureKeyForSpawn,
+  tickTimer,
   towerHeightCm,
+  type DangoSize,
   type RestOutcome,
 } from '../logic/tower';
+import { ALL_DANGO_KINDS, type DangoKind } from '../constants/assets';
+import { loadEconomy, loadFeel } from '../systems/EconomyConfig';
 
 const COUNTER_TOP_Y = 859;
 const ON_COUNTER_Y = COUNTER_TOP_Y - 35; // center of a dango on the counter
@@ -276,5 +290,176 @@ describe('simulated play-through — 30+ drops with fake physics rests', () => {
     expect(state.stacked).toBeGreaterThan(0);
     expect(state.totalDG).toBeGreaterThan(0);
     expect(towerHeightCm(state.stacked)).toBe(state.stacked * 4);
+  });
+});
+
+describe('textureKeyForSpawn (v3: expressions by size)', () => {
+  it('maps size to expression: large happy, medium wink, small surprised', () => {
+    expect(EXPRESSION_BY_SIZE).toEqual({
+      large: 'happy',
+      medium: 'wink',
+      small: 'surprised',
+    });
+    expect(EXPRESSIVE_KINDS).toEqual(['shiratama', 'sakura', 'yomogi']);
+  });
+
+  it('covers all 7 kinds x 3 sizes', () => {
+    const expressive: DangoKind[] = ['shiratama', 'sakura', 'yomogi'];
+    const plain: DangoKind[] = ['anko', 'mitarashi', 'matcha', 'golden'];
+    const sizes: DangoSize[] = ['small', 'medium', 'large'];
+    for (const kind of expressive) {
+      expect(textureKeyForSpawn(kind, 'large')).toBe(`${kind}-happy`);
+      expect(textureKeyForSpawn(kind, 'medium')).toBe(`${kind}-wink`);
+      expect(textureKeyForSpawn(kind, 'small')).toBe(`${kind}-surprised`);
+    }
+    for (const kind of plain) {
+      for (const size of sizes) {
+        expect(textureKeyForSpawn(kind, size)).toBe(kind);
+      }
+    }
+    // Every kind in the game is covered by one of the two groups.
+    expect([...expressive, ...plain].sort()).toEqual(
+      [...ALL_DANGO_KINDS].sort(),
+    );
+  });
+});
+
+describe('heightCmFromPx (v3: measured bottom-up height)', () => {
+  it('is 0 with no height', () => {
+    expect(heightCmFromPx(0)).toBe(0);
+    expect(heightCmFromPx(-30)).toBe(0);
+  });
+
+  it('converts with the dango ruler: 72 px (one medium dango) = 4 cm', () => {
+    expect(heightCmFromPx(72)).toBe(4);
+    expect(heightCmFromPx(36)).toBe(2);
+    expect(heightCmFromPx(144)).toBe(8);
+    // A large dango is 92 px across: 92/72*4 = 5.11 -> 5 cm.
+    expect(heightCmFromPx(92)).toBe(5);
+    // A small dango is 56 px across: 56/72*4 = 3.11 -> 3 cm.
+    expect(heightCmFromPx(56)).toBe(3);
+  });
+});
+
+describe('finalHeightBonus (v3: paid once at game end)', () => {
+  it('is heightCm x heightBonusPerCm (1 DG per cm by default)', () => {
+    expect(finalHeightBonus(0)).toBe(0);
+    expect(finalHeightBonus(1)).toBe(1);
+    expect(finalHeightBonus(132)).toBe(132);
+  });
+
+  it('follows the configured rate and never goes negative', () => {
+    const rich = { ...DEFAULT_ECONOMY, heightBonusPerCm: 2 };
+    expect(finalHeightBonus(132, rich)).toBe(264);
+    expect(finalHeightBonus(-10)).toBe(0);
+    // Fractional cm are floored before paying out.
+    expect(finalHeightBonus(132.9)).toBe(132);
+  });
+
+  it('the shipped economy config wires the rate at 1 DG per cm', () => {
+    expect(loadEconomy().heightBonusPerCm).toBe(1);
+    expect(DEFAULT_ECONOMY.heightBonusPerCm).toBe(1);
+  });
+});
+
+describe('countdown timer (v3: pure state machine)', () => {
+  it('starts full and untouched', () => {
+    expect(initialTimer(60)).toEqual({
+      started: false,
+      remainingMs: 60_000,
+      expired: false,
+    });
+  });
+
+  it('does not tick before the first drop starts it', () => {
+    const t = initialTimer(60);
+    expect(tickTimer(t, 5_000)).toEqual(t);
+    expect(addTimerBonus(t, 3)).toEqual(t);
+  });
+
+  it('ticks down once started, and start is idempotent', () => {
+    let t = startTimer(initialTimer(60));
+    expect(t.started).toBe(true);
+    expect(startTimer(t)).toEqual(t);
+    t = tickTimer(t, 1_500);
+    expect(t.remainingMs).toBe(58_500);
+    expect(t.expired).toBe(false);
+  });
+
+  it('a stacked Matcha adds +3 s, even above the start value', () => {
+    let t = startTimer(initialTimer(60));
+    t = addTimerBonus(t, 3);
+    expect(t.remainingMs).toBe(63_000);
+    t = tickTimer(t, 10_000);
+    t = addTimerBonus(t, 3);
+    expect(t.remainingMs).toBe(56_000);
+  });
+
+  it('expires at zero, clamps, and ignores later ticks and bonuses', () => {
+    let t = startTimer(initialTimer(60));
+    t = tickTimer(t, 75_000);
+    expect(t.remainingMs).toBe(0);
+    expect(t.expired).toBe(true);
+    expect(tickTimer(t, 1_000)).toEqual(t);
+    // Time is up: a late Matcha verdict cannot resurrect the clock.
+    expect(addTimerBonus(t, 3)).toEqual(t);
+  });
+
+  it('the shipped timer config is 60 s / +3 s / 700 ms spawn delay', () => {
+    expect(loadFeel().timer).toEqual({
+      startSeconds: 60,
+      matchaBonusSeconds: 3,
+      spawnDelayMs: 700,
+    });
+  });
+});
+
+describe('per-kind traits (v3: physics personality)', () => {
+  const feel = loadFeel();
+  const base = {
+    ...BASE_BODY_PARAMS,
+    friction: feel.physics.friction,
+    restitution: feel.physics.restitution,
+    frictionAir: feel.physics.frictionAir,
+  };
+  const traits = feel.physics.traits;
+
+  it('the shipped table covers every kind', () => {
+    expect(Object.keys(traits).sort()).toEqual([...ALL_DANGO_KINDS].sort());
+  });
+
+  it('shiratama and matcha keep the plain baseline', () => {
+    expect(bodyParamsFor('shiratama', base, traits)).toEqual(base);
+    expect(bodyParamsFor('matcha', base, traits)).toEqual(base);
+  });
+
+  it('sakura is light and anko is heavy (density only)', () => {
+    const sakura = bodyParamsFor('sakura', base, traits);
+    expect(sakura.density).toBeCloseTo(base.density * 0.55);
+    expect(sakura.friction).toBe(base.friction);
+    const anko = bodyParamsFor('anko', base, traits);
+    expect(anko.density).toBeCloseTo(base.density * 1.8);
+    expect(anko.restitution).toBe(base.restitution);
+  });
+
+  it('mitarashi is sticky: high grip, almost no bounce', () => {
+    const m = bodyParamsFor('mitarashi', base, traits);
+    expect(m.friction).toBe(0.95);
+    expect(m.frictionStatic).toBe(2.0);
+    expect(m.restitution).toBe(0.05);
+    expect(m.frictionAir).toBe(base.frictionAir);
+  });
+
+  it('yomogi is calm: thick air, no bounce, spin damping', () => {
+    const y = bodyParamsFor('yomogi', base, traits);
+    expect(y.frictionAir).toBe(0.05);
+    expect(y.restitution).toBe(0.05);
+    expect(y.angularDampingPerSec).toBeGreaterThan(0);
+  });
+
+  it('golden keeps its v2 grip (moved into the trait table)', () => {
+    const g = bodyParamsFor('golden', base, traits);
+    expect(g.friction).toBe(0.95);
+    expect(g.restitution).toBe(0.05);
   });
 });

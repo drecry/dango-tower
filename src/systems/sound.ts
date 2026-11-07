@@ -134,6 +134,14 @@ export class SoundFX {
     ]);
   }
 
+  /** Soft bright chime when a stacked Matcha buys more time (v3). */
+  timeBonus(): void {
+    this.play([
+      { freq: 880, at: 0, dur: 0.1, type: 'triangle', vol: 0.16 },
+      { freq: 1318, at: 0.08, dur: 0.18, type: 'sine', vol: 0.14 },
+    ]);
+  }
+
   gameOver(): void {
     this.play([
       { freq: 392, at: 0, dur: 0.18, type: 'triangle', vol: 0.18 },

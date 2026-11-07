@@ -34,13 +34,13 @@ export class HowToScene extends Phaser.Scene {
       },
       {
         icon: 'matcha',
-        title: '3. Three misses and it is over',
-        text: 'A dango that falls off the counter is a miss. Three dango off the counter and the shop closes for today.',
+        title: '3. Beat the clock!',
+        text: '60 seconds from your first drop. Three misses end the day — and a stacked Matcha adds +3 seconds!',
       },
       {
         icon: 'golden',
         title: '4. Every dango is sold',
-        text: 'Each dango you stack is sold at the shop. DG is your score — the taller the tower, the richer the shop!',
+        text: 'Each dango you stack is sold at the shop. DG is your score — and your final tower height adds a Height Bonus at closing time!',
       },
     ];
 
@@ -61,19 +61,19 @@ export class HowToScene extends Phaser.Scene {
     // DG formula box.
     const box = this.add.rectangle(
       GAME_WIDTH / 2,
-      y + 74,
+      y + 84,
       460,
-      148,
+      168,
       0xfff7e6,
       1,
     );
     box.setStrokeStyle(2, 0xc89b6a);
-    headingText(this, GAME_WIDTH / 2, y + 22, 'HOW DG IS EARNED', 22);
+    headingText(this, GAME_WIDTH / 2, y + 24, 'HOW DG IS EARNED', 22);
     bodyText(
       this,
       GAME_WIDTH / 2,
-      y + 52,
-      `DG = price x ${economy.sellMultiplier} + height bonus (+1 DG every ${economy.heightBonusEvery} dango) + Perfect bonus (${economy.perfectBonus} DG x combo)\nMatcha (10 DG) slows the sway for 3 drops. Golden (100 DG) drops straight down with no sway!`,
+      y + 56,
+      `DG = price x ${economy.sellMultiplier} + height bonus (+1 DG every ${economy.heightBonusEvery} dango) + Perfect bonus (${economy.perfectBonus} DG x combo) + final Height Bonus (height in cm x ${economy.heightBonusPerCm} DG)\nMatcha (10 DG) slows the sway for 3 drops, +3 seconds. Golden (100 DG) drops with no sway!`,
       17,
     ).setOrigin(0.5, 0);
 

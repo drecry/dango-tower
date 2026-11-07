@@ -7,7 +7,7 @@
  */
 import economyJson from '../config/dango-economy.json';
 import balanceJson from '../config/game-balance.json';
-import type { Balance, Economy, SizeSpec } from '../logic/tower';
+import type { Balance, Economy, SizeSpec, TraitTable } from '../logic/tower';
 import type { DangoKind } from '../constants/assets';
 
 interface EconomyJson {
@@ -19,6 +19,7 @@ interface EconomyJson {
     heightBonusEvery: number;
     perfectBonus: number;
     dangoHeightCm: number;
+    heightBonusPerCm: number;
   };
 }
 
@@ -27,8 +28,6 @@ interface PhysicsJson {
   restitution: number;
   friction: number;
   frictionAir: number;
-  goldenRestitution: number;
-  goldenFriction: number;
   counterTopY: number;
   platformCenterX: number;
   platformWidthPx: number;
@@ -40,6 +39,17 @@ interface PhysicsJson {
   resolveTimeoutMs: number;
   stackSupportMarginPx: number;
   sizes: SizeSpec[];
+  /** Per-kind physics traits (v3); golden's grip lives here now too. */
+  traits: TraitTable;
+}
+
+export interface TimerJson {
+  /** Countdown length in seconds, from the player's first drop. */
+  startSeconds: number;
+  /** Seconds added when a Matcha stacks. */
+  matchaBonusSeconds: number;
+  /** Delay before the next spawner activates after a drop. */
+  spawnDelayMs: number;
 }
 
 interface BalanceJson {
@@ -61,6 +71,7 @@ interface BalanceJson {
   platformTopY: number;
   physics: PhysicsJson;
   cameraTargetTopY: number;
+  timer: TimerJson;
 }
 
 /** The DG currency of this game (always "DG", shared with Dango Drop). */
@@ -76,6 +87,7 @@ export const loadEconomy = (): Economy => {
     heightBonusEvery: json.tower.heightBonusEvery,
     perfectBonus: json.tower.perfectBonus,
     dangoHeightCm: json.tower.dangoHeightCm,
+    heightBonusPerCm: json.tower.heightBonusPerCm ?? 1,
   };
 };
 
@@ -88,13 +100,14 @@ export const loadBalance = (): Balance => {
   };
 };
 
-/** Full feel settings for the GameScene (sway, physics, camera). */
+/** Full feel settings for the GameScene (sway, physics, camera, timer). */
 export const loadFeel = (): {
   sway: BalanceJson['sway'];
   swayY: number;
   platformTopY: number;
   physics: PhysicsJson;
   cameraTargetTopY: number;
+  timer: TimerJson;
 } => {
   const json = balanceJson as BalanceJson;
   return {
@@ -103,5 +116,6 @@ export const loadFeel = (): {
     platformTopY: json.platformTopY,
     physics: json.physics,
     cameraTargetTopY: json.cameraTargetTopY,
+    timer: json.timer,
   };
 };

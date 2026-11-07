@@ -17,6 +17,10 @@
  *                                           consecutive perfects raise
  *                                           the combo: 5, 10, 15 ... DG)
  *
+ *   At game end a FINAL HEIGHT BONUS is added once:
+ *   final tower height (cm, measured) x HEIGHT_BONUS_PER_CM DG.
+ *   The total including it is the run's DG (and the best-DG record).
+ *
  * Judging (v2, real physics): a dropped dango is judged ONCE, when it
  * comes to rest. Resting supported at or above counter level is a stack;
  * ending up below counter level (on the floor, off the counter) is a
@@ -44,6 +48,8 @@ export interface Economy {
   perfectBonus: number;
   /** Height of one dango in cm (for the height display). */
   dangoHeightCm: number;
+  /** Final Height Bonus at game end: DG per cm of final tower height. */
+  heightBonusPerCm: number;
 }
 
 /** Judging settings (from game-balance.json). */
@@ -79,6 +85,7 @@ export const DEFAULT_ECONOMY: Economy = {
   heightBonusEvery: 5,
   perfectBonus: 5,
   dangoHeightCm: 4,
+  heightBonusPerCm: 1,
 };
 
 export const DEFAULT_BALANCE: Balance = {
@@ -157,6 +164,49 @@ export const rollSpawn = (
   size: rollNextSize(sizes, random),
 });
 
+// ----- expressions by size (v3) ------------------------------------------
+
+/**
+ * Facial expressions (v3): three friends have expression variants in
+ * the art set (happy / wink / surprised — the positive set). Which face
+ * a dango wears is decided by its SIZE, so the tower reads at a glance:
+ * big dango grin, medium ones wink, small ones look surprised. Kinds
+ * without variants (anko, mitarashi, matcha, golden) always use their
+ * base art. The variants share the base art's framing exactly, so the
+ * v2 display sizing applies unchanged.
+ */
+export type DangoExpression = 'happy' | 'wink' | 'surprised';
+
+export const DANGO_EXPRESSIONS: readonly DangoExpression[] = [
+  'happy',
+  'wink',
+  'surprised',
+];
+
+/** Kinds that have expression variant art. */
+export const EXPRESSIVE_KINDS: readonly DangoKind[] = [
+  'shiratama',
+  'sakura',
+  'yomogi',
+];
+
+/** Size -> expression for the kinds that have variants. */
+export const EXPRESSION_BY_SIZE: Record<DangoSize, DangoExpression> = {
+  large: 'happy',
+  medium: 'wink',
+  small: 'surprised',
+};
+
+/**
+ * Texture key for a spawn (kind + size). Used for the hovering spawner,
+ * the falling/stacked body and the NEXT preview alike, so a dango never
+ * changes face mid-flight.
+ */
+export const textureKeyForSpawn = (kind: DangoKind, size: DangoSize): string =>
+  EXPRESSIVE_KINDS.includes(kind)
+    ? `${kind}-${EXPRESSION_BY_SIZE[size]}`
+    : kind;
+
 /** Where a dropped dango came to rest (world coordinates). */
 export interface RestOutcome {
   /** Center X of the dropped dango at rest. */
@@ -222,6 +272,158 @@ export const towerHeightCm = (
   stackedCount: number,
   economy: Economy = DEFAULT_ECONOMY,
 ): number => stackedCount * economy.dangoHeightCm;
+
+/**
+ * Reference body diameter (px) that equals one `dangoHeightCm`: the
+ * medium dango (radius 36 x 2). This is the game's px->cm conversion —
+ * a dango's pixel diameter IS its height in the world, so a tower's
+ * height in px converts with the same ruler.
+ */
+export const REFERENCE_DIAMETER_PX = 72;
+
+/**
+ * Tower height in cm from a measured pixel height (v3): the readout is
+ * the real measured height — counter top surface up to the top of the
+ * highest settled dango — not a per-dango estimate. 0 when the tower
+ * has no height (nothing stacked).
+ */
+export const heightCmFromPx = (
+  heightPx: number,
+  economy: Economy = DEFAULT_ECONOMY,
+  referenceDiameterPx: number = REFERENCE_DIAMETER_PX,
+): number => {
+  if (heightPx <= 0 || referenceDiameterPx <= 0) return 0;
+  return Math.round((heightPx / referenceDiameterPx) * economy.dangoHeightCm);
+};
+
+/**
+ * Final Height Bonus (v3), paid once at game end: the taller the tower
+ * when the shop closes, the bigger the bonus — finalHeightCm x rate.
+ * This is separate from the per-landing `heightBonus` above.
+ */
+export const finalHeightBonus = (
+  heightCm: number,
+  economy: Economy = DEFAULT_ECONOMY,
+): number => Math.max(0, Math.floor(heightCm)) * economy.heightBonusPerCm;
+
+// ----- per-kind physics traits (v3) --------------------------------------
+
+/**
+ * Per-kind physics traits (v3): each friend handles a little
+ * differently, expressed purely as Matter body parameters so the
+ * character shows in the physics, not in special-case code. Values
+ * live in game-balance.json (`physics.traits`); a field left out falls
+ * back to the shared baseline.
+ */
+export interface DangoTrait {
+  /** Multiplier on the baseline body density (heavier / lighter). */
+  densityFactor?: number;
+  /** Sliding friction override. */
+  friction?: number;
+  /** Static (grip) friction override. */
+  frictionStatic?: number;
+  /** Bounciness override. */
+  restitution?: number;
+  /** Air friction override (also slows rolling creep). */
+  frictionAir?: number;
+  /**
+   * Extra angular damping (1/sec): the scene decays the body's spin
+   * exponentially at this rate while the dango is in play. Matter has
+   * no per-body angular air friction, so the scene applies it.
+   */
+  angularDampingPerSec?: number;
+}
+
+export type TraitTable = Partial<Record<DangoKind, DangoTrait>>;
+
+/** Fully-resolved Matter body parameters for one dango. */
+export interface BodyParams {
+  friction: number;
+  frictionStatic: number;
+  restitution: number;
+  frictionAir: number;
+  /** Absolute body density (baseline x the trait's densityFactor). */
+  density: number;
+  angularDampingPerSec: number;
+}
+
+/**
+ * Baseline body parameters (v2 feel): the scene builds these from
+ * game-balance.json's shared physics numbers plus Matter's defaults
+ * (frictionStatic 0.5, density 0.001).
+ */
+export const BASE_BODY_PARAMS: BodyParams = {
+  friction: 0.6,
+  frictionStatic: 0.5,
+  restitution: 0.15,
+  frictionAir: 0.015,
+  density: 0.001,
+  angularDampingPerSec: 0,
+};
+
+/** Resolve the body parameters for one kind: baseline + trait overrides. */
+export const bodyParamsFor = (
+  kind: DangoKind,
+  base: BodyParams = BASE_BODY_PARAMS,
+  traits: TraitTable = {},
+): BodyParams => {
+  const trait = traits[kind] ?? {};
+  return {
+    friction: trait.friction ?? base.friction,
+    frictionStatic: trait.frictionStatic ?? base.frictionStatic,
+    restitution: trait.restitution ?? base.restitution,
+    frictionAir: trait.frictionAir ?? base.frictionAir,
+    density: base.density * (trait.densityFactor ?? 1),
+    angularDampingPerSec:
+      trait.angularDampingPerSec ?? base.angularDampingPerSec,
+  };
+};
+
+// ----- countdown timer (v3) ----------------------------------------------
+
+/**
+ * The 60-second countdown (v3), as a pure state machine so the rules
+ * are testable without Phaser. Time only ever moves when the scene
+ * feeds it accumulated scene-time deltas — a backgrounded tab runs no
+ * updates, so it cannot drain the clock.
+ *
+ * Rules:
+ * - The clock starts on the player's FIRST drop (never before).
+ * - A stacked Matcha adds bonus seconds — but only while the clock is
+ *   still running; once time is up, time is up.
+ * - Remaining time may rise above the start value (an early Matcha).
+ */
+export interface TimerState {
+  started: boolean;
+  remainingMs: number;
+  expired: boolean;
+}
+
+export const initialTimer = (startSeconds: number): TimerState => ({
+  started: false,
+  remainingMs: Math.max(0, startSeconds * 1000),
+  expired: false,
+});
+
+/** Start the clock (first drop). Idempotent. */
+export const startTimer = (state: TimerState): TimerState =>
+  state.started ? state : { ...state, started: true };
+
+/** Advance the clock by a scene-time delta. No-op before the start. */
+export const tickTimer = (state: TimerState, deltaMs: number): TimerState => {
+  if (!state.started || state.expired || deltaMs <= 0) return state;
+  const remainingMs = Math.max(0, state.remainingMs - deltaMs);
+  return { ...state, remainingMs, expired: remainingMs <= 0 };
+};
+
+/** Add bonus seconds (a stacked Matcha). Only while the clock runs. */
+export const addTimerBonus = (
+  state: TimerState,
+  bonusSeconds: number,
+): TimerState => {
+  if (!state.started || state.expired || bonusSeconds <= 0) return state;
+  return { ...state, remainingMs: state.remainingMs + bonusSeconds * 1000 };
+};
 
 /** Minimal per-game state, driven by the pure rules above. */
 export interface TowerState {

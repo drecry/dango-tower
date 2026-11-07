@@ -2,7 +2,9 @@
  * Meet the Dango screen (Dango Tower).
  *
  * Introduces the seven dango friends with their real character art,
- * menu prices and one-line personalities. Reached from the title screen.
+ * menu prices, one-line personalities and (v3) their gameplay trait —
+ * each friend handles a little differently in the physics.
+ * Reached from the title screen.
  */
 import Phaser from 'phaser';
 import { GAME_WIDTH } from '../config/dimensions';
@@ -19,37 +21,37 @@ export class MeetScene extends Phaser.Scene {
 
   create(): void {
     const economy = loadEconomy();
-    headingText(this, GAME_WIDTH / 2, 72, 'MEET THE DANGO', 36);
+    headingText(this, GAME_WIDTH / 2, 60, 'MEET THE DANGO', 36);
     bodyText(
       this,
       GAME_WIDTH / 2,
-      116,
+      100,
       'Seven friends run the dango shop together.',
       18,
     ).setOrigin(0.5);
 
-    let y = 168;
+    let y = 138;
     for (const kind of ALL_DANGO_KINDS) {
       const info = DANGO_INFO[kind];
-      this.add.image(72, y + 34, kind).setDisplaySize(68, 68);
+      this.add.image(70, y + 40, kind).setDisplaySize(64, 64);
       this.add
-        .text(120, y, `${info.name}  ·  ${economy.prices[kind]} DG`, {
+        .text(116, y, `${info.name}  ·  ${economy.prices[kind]} DG`, {
           fontFamily: '"Mochiy Pop One", "Zen Maru Gothic", sans-serif',
-          fontSize: '21px',
+          fontSize: '20px',
           color: '#5a3a28',
         })
         .setOrigin(0, 0);
-      bodyText(this, 120, y + 30, info.intro, 17, 400).setOrigin(0, 0);
-      y += 96;
+      bodyText(this, 116, y + 27, info.intro, 16, 408).setOrigin(0, 0);
+      this.add
+        .text(116, y + 72, info.trait, {
+          fontFamily: '"Zen Maru Gothic", sans-serif',
+          fontSize: '15px',
+          fontStyle: 'bold',
+          color: '#c04a63',
+        })
+        .setOrigin(0, 0);
+      y += 104;
     }
-
-    bodyText(
-      this,
-      GAME_WIDTH / 2,
-      y + 6,
-      'Matcha and Golden are rare drops — keep an eye out!',
-      17,
-    ).setOrigin(0.5);
 
     makeButton(this, GAME_WIDTH / 2, 892, 240, 56, 'BACK', () => {
       this.scene.start('TitleScene');

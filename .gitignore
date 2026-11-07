@@ -38,3 +38,9 @@ npm-debug.log*
 # The .png.b64 files are the tracked source of truth; see README.md.
 public/assets/dango/*.png
 public/ogp.png
+
+# Exception (v3): the expression variants are real source art like
+# bg-tower.webp — there is no .b64 source for them, so they are tracked.
+!public/assets/dango/*-happy.png
+!public/assets/dango/*-wink.png
+!public/assets/dango/*-surprised.png

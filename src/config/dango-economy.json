@@ -16,6 +16,7 @@
   "tower": {
     "dangoHeightCm": 4,
     "heightBonusEvery": 5,
+    "heightBonusPerCm": 1,
     "perfectBonus": 5,
     "sellMultiplier": 3
   }

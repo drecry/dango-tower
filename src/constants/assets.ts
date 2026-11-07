@@ -41,6 +41,8 @@ export interface DangoInfo {
   name: string;
   /** One-line introduction for the Meet the Dango screen. */
   intro: string;
+  /** One-line gameplay trait for the Meet the Dango screen (v3). */
+  trait: string;
   /** Accent color used for name labels and effects. */
   color: string;
 }
@@ -50,42 +52,49 @@ export const DANGO_INFO: Record<DangoKind, DangoInfo> = {
     kind: 'shiratama',
     name: 'Shiratama',
     intro: 'Soft, white and cheerful. The first friend you meet.',
+    trait: 'A steady all-rounder.',
     color: '#fff7e6',
   },
   anko: {
     kind: 'anko',
     name: 'Anko',
     intro: 'Sweet red bean paste. Warm, round and reliable.',
+    trait: 'Heavy — a rock-solid base.',
     color: '#7a4a2b',
   },
   sakura: {
     kind: 'sakura',
     name: 'Sakura',
     intro: 'Pink like cherry blossom. Gentle and a little dreamy.',
+    trait: 'Light and gentle on the tower top.',
     color: '#f6c9d4',
   },
   mitarashi: {
     kind: 'mitarashi',
     name: 'Mitarashi',
     intro: 'Glazed with sweet soy sauce. Shiny and proud.',
+    trait: 'Sticky glaze — grips where it lands.',
     color: '#c89b6a',
   },
   yomogi: {
     kind: 'yomogi',
     name: 'Yomogi',
     intro: 'Green mugwort. Calm, herbal and quietly strong.',
+    trait: 'Calm — settles fast, barely rolls.',
     color: '#8fbf7f',
   },
   matcha: {
     kind: 'matcha',
     name: 'Matcha',
     intro: 'The Shy One. Rarely comes to the shop, but works the hardest when she does.',
+    trait: 'Slows the sway. +3 seconds when it stacks!',
     color: '#5a8a4a',
   },
   golden: {
     kind: 'golden',
     name: 'Golden',
     intro: 'A rare shining dango. Worth a fortune at the shop!',
+    trait: 'Rare and precious. Always drops true.',
     color: '#f5c542',
   },
 };
@@ -93,6 +102,12 @@ export const DANGO_INFO: Record<DangoKind, DangoInfo> = {
 /** Path of a dango image inside public/ (Vite serves public/ at the base). */
 export const dangoImagePath = (kind: DangoKind): string =>
   `assets/dango/${kind}.png`;
+
+/** Path of an expression variant image inside public/ (v3). */
+export const dangoExpressionPath = (
+  kind: DangoKind,
+  expression: string,
+): string => `assets/dango/${kind}-${expression}.png`;
 
 /** Texture key for the shop background illustration. */
 export const BACKGROUND_KEY = 'bg-tower';

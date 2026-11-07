@@ -9,12 +9,28 @@
  * above counter level (dead-center = Perfect), or a miss if it slipped
  * off the counter to the floor. Three misses end the game.
  *
+ * v3 changes:
+ * - FAST-DROP PIPELINE: the next dango activates 0.7 s after a drop,
+ *   even while earlier dango are still settling. Every dropped dango
+ *   is tracked and judged independently when IT settles (Perfect is
+ *   judged against the topmost settled dango at that moment).
+ * - TIMER: a 60-second countdown starts on the first drop. A stacked
+ *   Matcha adds +3 seconds. At zero the input locks; dango already in
+ *   play are still judged, then the shop closes.
+ * - EXPRESSIONS: shiratama / sakura / yomogi wear a face by SIZE
+ *   (large = happy, medium = wink, small = surprised).
+ * - TRAITS: each kind has its own physics feel (anko is heavy,
+ *   mitarashi sticky, sakura light, yomogi calm...).
+ * - HEIGHT: the cm readout is the measured tower height — counter top
+ *   surface to the top of the highest settled dango — and at game end
+ *   it pays a Final Height Bonus of heightCm x 1 DG.
+ *
  * The background illustration is anchored to the world: the shop
  * counter in the art IS the physics platform, and as the tower grows
  * the camera pans up into the plain sky above the art.
  *
  * The play area fills the whole phone screen: only a slim HUD sits on
- * top (DG, height, misses, sound, pause), pinned to the camera.
+ * top (DG, height, timer, misses, sound, pause), pinned to the camera.
  * Rules and introductions live on their own screens.
  */
 import Phaser from 'phaser';
@@ -22,14 +38,24 @@ import { GAME_WIDTH, GAME_HEIGHT } from '../config/dimensions';
 import { BACKGROUND_KEY, SKY_FILL_COLOR } from '../constants/assets';
 import type { DangoKind } from '../constants/assets';
 import {
+  addTimerBonus,
   applyResult,
+  bodyParamsFor,
+  finalHeightBonus,
+  heightCmFromPx,
   initialState,
+  initialTimer,
   judgeRest,
   rollSpawn,
-  towerHeightCm,
+  startTimer,
+  textureKeyForSpawn,
+  tickTimer,
+  BASE_BODY_PARAMS,
+  type BodyParams,
   type DangoSize,
   type Economy,
   type SpawnEntry,
+  type TimerState,
   type TowerState,
 } from '../logic/tower';
 import { saveBest } from '../logic/storage';
@@ -41,6 +67,7 @@ import {
 } from '../systems/EconomyConfig';
 import { sound } from '../systems/sound';
 import { COLOR_TEXT, addSoftPanel, makeIconButton } from './ui';
+import type { ResultData } from './ResultScene';
 
 export const GAME_SCENE_KEY = 'GameScene';
 
@@ -52,6 +79,7 @@ interface MatterBodyLike {
   label: string;
   speed: number;
   angularSpeed: number;
+  angularVelocity: number;
   isSleeping: boolean;
   isStatic: boolean;
   position: { x: number; y: number };
@@ -61,6 +89,26 @@ interface MatterBodyLike {
 
 interface CollisionStartLike {
   pairs: { bodyA: MatterBodyLike; bodyB: MatterBodyLike }[];
+}
+
+/**
+ * One dropped dango still waiting for its verdict. v3 tracks every
+ * in-flight dango separately so drops can pipeline.
+ */
+interface PendingDango {
+  img: MatterImage;
+  kind: DangoKind;
+  radius: number;
+  /** Ms since the drop, accumulated from update deltas (pause-safe). */
+  elapsedMs: number;
+  peakSpeed: number;
+  collided: boolean;
+  ponPlayed: boolean;
+  settleStillMs: number;
+  /** Ms spent slow but not still (rolling creep). */
+  calmMs: number;
+  /** Extra spin damping (yomogi's trait), 0 for the others. */
+  angularDampingPerSec: number;
 }
 
 /** Debug/playtest surface, also handy from a browser console. */
@@ -77,13 +125,27 @@ export interface DangoTowerDebug {
     referenceX: number;
     spawnerKind: DangoKind | null;
     spawnerSize: DangoSize | null;
+    spawnerTexture: string | null;
     nextKind: DangoKind;
     nextSize: DangoSize;
+    nextTexture: string;
     cameraScrollY: number;
+    /** v3: measured tower height in cm (bottom-up). */
+    heightCm: number;
+    /** v3: countdown state. */
+    timeLeftSec: number;
+    timerStarted: boolean;
+    timerExpired: boolean;
+    timerBonusMs: number;
+    /** v3: dropped dango still waiting for a verdict. */
+    pendingCount: number;
   };
   drop: () => boolean;
   dropAt: (x: number) => boolean;
   setNextKind: (kind: DangoKind) => void;
+  setNextSize: (size: DangoSize) => void;
+  /** v3: set the countdown (seconds); starts the clock if needed. */
+  forceTimeLeft: (seconds: number) => void;
   getActive: () => { x: number; y: number; speed: number } | null;
   getInternals: () => {
     collided: boolean;
@@ -102,6 +164,8 @@ export interface DangoTowerDebug {
     referenceX: number;
     landing: string;
   } | null;
+  /** v3: the exact data handed to the Result scene at game end. */
+  getLastResult: () => ResultData | null;
 }
 
 const HUD_TOP = 20;
@@ -119,34 +183,26 @@ export class GameScene extends Phaser.Scene {
   private balance = loadBalance();
   private feel = loadFeel();
   private state: TowerState = initialState();
-  private phase: Phase = 'swaying';
+  private gameOver = false;
   private paused = false;
 
   private spawner: Phaser.GameObjects.Image | null = null;
+  /** True while a hovering spawner is shown and can be dropped. */
+  private spawnerActive = false;
   /** Spawn queue, always 2 deep: current (hovering) + next (preview). */
   private currentEntry: SpawnEntry = { kind: 'shiratama', size: 'medium' };
   private nextEntry: SpawnEntry = { kind: 'shiratama', size: 'medium' };
   private nextImage: Phaser.GameObjects.Image | null = null;
   private guide: Phaser.GameObjects.Rectangle | null = null;
 
-  private activeDango: MatterImage | null = null;
-  private activeKind: DangoKind = 'shiratama';
-  private activeRadius = 36;
+  /** Dropped dango still waiting for their verdict (v3 pipeline). */
+  private pending: PendingDango[] = [];
   private lastJudge: {
     restX: number;
     restY: number;
     referenceX: number;
     landing: string;
   } | null = null;
-  private activeReferenceX = GAME_WIDTH / 2;
-  /** Ms since the drop, accumulated from update deltas (pause-safe). */
-  private activeElapsedMs = 0;
-  private activePeakSpeed = 0;
-  private activeCollided = false;
-  private activePonPlayed = false;
-  private settleStillMs = 0;
-  /** Ms the active dango has spent slow but not still (rolling creep). */
-  private calmMs = 0;
   /** Diagnostics for the playtest hook. */
   private collisionEventsSeen = 0;
   private lastPairInfo: string | null = null;
@@ -163,8 +219,21 @@ export class GameScene extends Phaser.Scene {
   private nudgeT = -1;
   private squashAt = new Map<object, number>();
 
+  // ----- v3: countdown timer ------------------------------------------
+  private timer: TimerState = initialTimer(60);
+  /** Input locked because the clock ran out (dango in play drain first). */
+  private timeUp = false;
+  /** Total Matcha time bonus actually applied (playtest diagnostics). */
+  private timerBonusTotalMs = 0;
+  private timerText: Phaser.GameObjects.Text | null = null;
+  private timerShownLabel = '';
+  private timerUrgent = false;
+  private timerPulse: Phaser.Tweens.Tween | null = null;
+  private lastResult: ResultData | null = null;
+
   private dgText: Phaser.GameObjects.Text | null = null;
   private heightText: Phaser.GameObjects.Text | null = null;
+  private lastShownCm = -1;
   private missDots: Phaser.GameObjects.Arc[] = [];
   private pauseOverlay: Phaser.GameObjects.Container | null = null;
   private soundText: Phaser.GameObjects.Text | null = null;
@@ -178,8 +247,9 @@ export class GameScene extends Phaser.Scene {
     this.balance = loadBalance();
     this.feel = loadFeel();
     this.state = initialState();
-    this.phase = 'swaying';
+    this.gameOver = false;
     this.paused = false;
+    this.pending = [];
     this.stackedDangos = [];
     this.swayPhase = 0;
     this.slowDropsLeft = 0;
@@ -188,6 +258,19 @@ export class GameScene extends Phaser.Scene {
     this.nudgeT = -1;
     this.missDots = [];
     this.squashAt.clear();
+    this.spawnerActive = false;
+    this.lastJudge = null;
+    this.collisionEventsSeen = 0;
+    this.lastPairInfo = null;
+    // v3 timer state.
+    this.timer = initialTimer(this.feel.timer.startSeconds);
+    this.timeUp = false;
+    this.timerBonusTotalMs = 0;
+    this.timerShownLabel = '';
+    this.timerUrgent = false;
+    this.timerPulse = null;
+    this.lastResult = null;
+    this.lastShownCm = -1;
 
     const phys = this.feel.physics;
     const cam = this.cameras.main;
@@ -250,7 +333,7 @@ export class GameScene extends Phaser.Scene {
 
     // Tap anywhere below the HUD to drop. Space / Enter also drops.
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (this.paused || this.phase !== 'swaying') return;
+      if (this.paused || !this.spawnerActive) return;
       if (pointer.y < HUD_GUARD_Y) return; // HUD zone: buttons live here.
       this.drop();
     });
@@ -266,14 +349,24 @@ export class GameScene extends Phaser.Scene {
 
     this.updateCamera(dt);
 
-    if (this.phase === 'swaying') {
-      this.updateSway(dt);
-    } else if (this.phase === 'dropping') {
-      this.updateSettle(deltaMs);
+    if (!this.gameOver) {
+      // The countdown runs on accumulated scene time (update deltas),
+      // so a backgrounded tab — which runs no updates — cannot drain
+      // it. One frame's contribution is clamped so a resume hitch
+      // cannot take a bite out of the clock either.
+      this.updateTimer(Math.min(deltaMs, 250));
     }
+
+    if (this.spawnerActive) {
+      this.updateSway(dt);
+    }
+    if (!this.gameOver) {
+      this.updatePending(deltaMs);
+    }
+    this.refreshHeightReadout();
   }
 
-  // ----- sizes -----------------------------------------------------------
+  // ----- sizes / traits --------------------------------------------------
 
   /** Physics radius for a size, from game-balance.json. */
   private radiusFor(size: DangoSize): number {
@@ -294,6 +387,125 @@ export class GameScene extends Phaser.Scene {
   private dangoTop(dango: MatterImage): number {
     const r = (dango.getData('radiusPx') as number | undefined) ?? 36;
     return dango.y - r;
+  }
+
+  /** Matter body parameters for a kind: shared baseline + its trait. */
+  private bodyParams(kind: DangoKind): BodyParams {
+    const phys = this.feel.physics;
+    return bodyParamsFor(
+      kind,
+      {
+        ...BASE_BODY_PARAMS,
+        friction: phys.friction,
+        restitution: phys.restitution,
+        frictionAir: phys.frictionAir,
+      },
+      phys.traits,
+    );
+  }
+
+  // ----- measured height (v3) ---------------------------------------------
+
+  /**
+   * The tower's height right now, in cm, measured from the counter top
+   * surface to the top of the highest SETTLED (judged stacked) dango.
+   * 0 when nothing is stacked.
+   */
+  private currentHeightCm(): number {
+    let topY = Number.POSITIVE_INFINITY;
+    for (const dango of this.stackedDangos) {
+      if (!dango.active) continue;
+      topY = Math.min(topY, this.dangoTop(dango));
+    }
+    if (topY === Number.POSITIVE_INFINITY) return 0;
+    return heightCmFromPx(
+      this.feel.physics.counterTopY - topY,
+      this.economy,
+    );
+  }
+
+  private refreshHeightReadout(): void {
+    const cm = this.currentHeightCm();
+    if (cm !== this.lastShownCm) {
+      this.lastShownCm = cm;
+      this.heightText?.setText(`${cm} cm`);
+    }
+  }
+
+  // ----- timer (v3) --------------------------------------------------------
+
+  private updateTimer(deltaMs: number): void {
+    if (!this.timer.started || this.timer.expired) return;
+    this.timer = tickTimer(this.timer, deltaMs);
+    this.refreshTimerText();
+    if (this.timer.expired) {
+      this.onTimeUp();
+      return;
+    }
+    // Under 10 seconds the readout turns red and pulses gently.
+    const urgent = this.timer.remainingMs < 10_000;
+    if (urgent !== this.timerUrgent) {
+      this.timerUrgent = urgent;
+      this.timerText?.setColor(urgent ? '#d94f5c' : COLOR_TEXT);
+      if (urgent && this.timerText && !this.timerPulse) {
+        this.timerPulse = this.tweens.add({
+          targets: this.timerText,
+          scale: 1.14,
+          duration: 320,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.inOut',
+        });
+      }
+      if (!urgent && this.timerPulse) {
+        // A Matcha bonus lifted the clock back out of the red zone.
+        this.timerPulse.stop();
+        this.timerPulse = null;
+        this.timerText?.setScale(1);
+      }
+    }
+  }
+
+  private refreshTimerText(): void {
+    if (!this.timerText) return;
+    const remainSec = this.timer.remainingMs / 1000;
+    const label =
+      remainSec >= 10
+        ? `${Math.ceil(remainSec)}s`
+        : `${Math.max(0, remainSec).toFixed(1)}s`;
+    if (label !== this.timerShownLabel) {
+      this.timerShownLabel = label;
+      this.timerText.setText(label);
+    }
+  }
+
+  /** The clock hit zero: lock the input and let in-play dango drain. */
+  private onTimeUp(): void {
+    if (this.timeUp || this.gameOver) return;
+    this.timeUp = true;
+    if (this.spawner) {
+      this.tweens.killTweensOf(this.spawner);
+      this.spawner.destroy();
+      this.spawner = null;
+    }
+    this.spawnerActive = false;
+    this.guide?.setVisible(false);
+    if (this.timerPulse) {
+      this.timerPulse.stop();
+      this.timerPulse = null;
+    }
+    this.timerText?.setScale(1).setColor('#d94f5c');
+    this.refreshTimerText();
+    this.floatText(
+      GAME_WIDTH / 2,
+      this.cameras.main.scrollY + 300,
+      'TIME UP!',
+      '#d94f5c',
+      30,
+    );
+    if (this.pending.length === 0) {
+      this.endGame();
+    }
   }
 
   // ----- camera ----------------------------------------------------------
@@ -388,30 +600,41 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onDropKey(): void {
-    if (this.paused || this.phase !== 'swaying') return;
+    if (this.paused) return;
     this.drop();
   }
 
   private drop(): void {
-    if (this.phase !== 'swaying' || !this.spawner) return;
-    const phys = this.feel.physics;
-    const kind = this.currentEntry.kind;
-    const radius = this.radiusFor(this.currentEntry.size);
+    if (!this.spawnerActive || !this.spawner || this.gameOver || this.timeUp) {
+      return;
+    }
+    // The countdown starts on the player's FIRST drop.
+    if (!this.timer.started) {
+      this.timer = startTimer(this.timer);
+      this.refreshTimerText();
+    }
+    const entry = this.currentEntry;
+    const kind = entry.kind;
+    const radius = this.radiusFor(entry.size);
     const display = this.displayFor(radius);
     const x = this.swayX;
     const y = this.spawnerWorldY();
     this.debugHoldX = null;
     this.guide?.setVisible(false);
-    if (this.spawner) {
-      this.tweens.killTweensOf(this.spawner);
-      this.spawner.destroy();
-      this.spawner = null;
-    }
+    this.tweens.killTweensOf(this.spawner);
+    this.spawner.destroy();
+    this.spawner = null;
+    this.spawnerActive = false;
 
-    // The hovering preview becomes a real physics body.
-    const img = this.matter.add.image(x, y, kind, undefined, {
-      label: 'dango',
-    });
+    // The hovering preview becomes a real physics body, wearing the
+    // face its size gives it.
+    const img = this.matter.add.image(
+      x,
+      y,
+      textureKeyForSpawn(kind, entry.size),
+      undefined,
+      { label: 'dango' },
+    );
     img.setDisplaySize(display, display);
     img.setData('baseScale', img.scaleX);
     img.setData('radiusPx', radius);
@@ -419,85 +642,107 @@ export class GameScene extends Phaser.Scene {
     // setCircle replaces the body (and its label) — re-apply ours,
     // the collision handler identifies dango by it.
     (img.body as unknown as MatterBodyLike).label = 'dango';
-    img.setFriction(kind === 'golden' ? phys.goldenFriction : phys.friction);
-    img.setBounce(kind === 'golden' ? phys.goldenRestitution : phys.restitution);
-    img.setFrictionAir(phys.frictionAir);
+    const params = this.bodyParams(kind);
+    img.setFriction(params.friction);
+    img.setFrictionStatic(params.frictionStatic);
+    img.setBounce(params.restitution);
+    img.setFrictionAir(params.frictionAir);
+    img.setDensity(params.density);
     img.setDepth(2);
 
-    this.activeDango = img;
-    this.activeKind = kind;
-    this.activeRadius = radius;
-    this.activeReferenceX = this.referenceX();
-    this.activeElapsedMs = 0;
-    this.activePeakSpeed = 0;
-    this.activeCollided = false;
-    this.activePonPlayed = false;
-    this.settleStillMs = 0;
-    this.calmMs = 0;
-    this.phase = 'dropping';
+    this.pending.push({
+      img,
+      kind,
+      radius,
+      elapsedMs: 0,
+      peakSpeed: 0,
+      collided: false,
+      ponPlayed: false,
+      settleStillMs: 0,
+      calmMs: 0,
+      angularDampingPerSec: params.angularDampingPerSec,
+    });
     sound.drop();
+
+    // Fast-drop pipeline: the next spawner activates on a fixed delay,
+    // without waiting for this dango to settle.
+    this.time.delayedCall(this.feel.timer.spawnDelayMs, () =>
+      this.advanceQueue(),
+    );
   }
 
-  // ----- settling & judging ---------------------------------------------
+  // ----- settling & judging (per pending dango) ---------------------------
 
-  private updateSettle(deltaMs: number): void {
-    const dango = this.activeDango;
-    if (!dango || !dango.body) return;
+  private updatePending(deltaMs: number): void {
+    for (const p of [...this.pending]) {
+      if (!this.updateOnePending(p, deltaMs)) continue;
+      this.pending.splice(this.pending.indexOf(p), 1);
+      this.resolvePending(p);
+      if (this.gameOver) return;
+    }
+    // Time is up and the last in-play dango has been judged: close.
+    if (this.timeUp && this.pending.length === 0) {
+      this.endGame();
+    }
+  }
+
+  /** Advance one in-flight dango; returns true once it has settled. */
+  private updateOnePending(p: PendingDango, deltaMs: number): boolean {
+    const dango = p.img;
+    if (!dango.body) return true;
     const body = dango.body as unknown as MatterBodyLike;
     const phys = this.feel.physics;
-    this.activeElapsedMs += deltaMs;
-    this.activePeakSpeed = Math.max(this.activePeakSpeed, body.speed);
+    p.elapsedMs += deltaMs;
+    p.peakSpeed = Math.max(p.peakSpeed, body.speed);
+
+    // Trait: extra spin damping (yomogi) while the dango is in play.
+    if (p.angularDampingPerSec > 0 && body.angularVelocity !== 0) {
+      const keep = Math.exp(-p.angularDampingPerSec * (deltaMs / 1000));
+      dango.setAngularVelocity(body.angularVelocity * keep);
+    }
 
     // Safety net: somehow fell past the floor — judge it a miss.
     if (dango.y > phys.floorTopY + 200) {
-      this.resolveDrop();
-      return;
+      return true;
     }
 
-    const still =
-      body.speed < phys.settleSpeed && body.angularSpeed < 0.1;
-    this.settleStillMs = still ? this.settleStillMs + deltaMs : 0;
+    const still = body.speed < phys.settleSpeed && body.angularSpeed < 0.1;
+    p.settleStillMs = still ? p.settleStillMs + deltaMs : 0;
 
     // Matter circles barely feel rolling friction: a dango that landed
     // can keep creeping at a slow roll for seconds. Once it has touched
     // something and stayed slow for a moment, put it to sleep — it is
     // resting, wherever exactly it stopped.
     const calm =
-      this.activeCollided &&
-      body.speed < phys.calmSpeed &&
-      body.angularSpeed < 0.2;
-    this.calmMs = calm ? this.calmMs + deltaMs : 0;
-    if (this.calmMs >= phys.calmTimeMs && !body.isSleeping) {
+      p.collided && body.speed < phys.calmSpeed && body.angularSpeed < 0.2;
+    p.calmMs = calm ? p.calmMs + deltaMs : 0;
+    if (p.calmMs >= phys.calmTimeMs && !body.isSleeping) {
       dango.setToSleep();
     }
 
     const settled =
-      body.isSleeping ||
-      (this.activeCollided && this.settleStillMs >= phys.settleTimeMs);
+      body.isSleeping || (p.collided && p.settleStillMs >= phys.settleTimeMs);
     // The hard timeout may only judge a dango that is nearly stopped —
     // never one still falling (slow devices run physics behind the
     // clock). A final failsafe covers bodies that never calm down.
-    const timedOut =
-      this.activeElapsedMs >= phys.resolveTimeoutMs && body.speed < 2;
-    const failsafe = this.activeElapsedMs >= phys.resolveTimeoutMs * 3;
-    if (settled || timedOut || failsafe) {
-      this.resolveDrop();
-    }
+    const timedOut = p.elapsedMs >= phys.resolveTimeoutMs && body.speed < 2;
+    const failsafe = p.elapsedMs >= phys.resolveTimeoutMs * 3;
+    return settled || timedOut || failsafe;
   }
 
-  private resolveDrop(): void {
-    const dango = this.activeDango;
-    if (!dango) return;
-    this.phase = 'waiting';
-    const kind = this.activeKind;
+  private resolvePending(p: PendingDango): void {
+    const dango = p.img;
+    const kind = p.kind;
     const restX = dango.x;
     const restY = dango.y;
+    // Perfect is judged against the topmost SETTLED dango right now.
+    const referenceX = this.referenceX();
     const landing = judgeRest(
       {
         restX,
         restY,
         counterTopY: this.feel.physics.counterTopY,
-        referenceX: this.activeReferenceX,
+        referenceX,
       },
       this.balance,
     );
@@ -508,14 +753,8 @@ export class GameScene extends Phaser.Scene {
       this.economy,
       this.balance,
     );
-    this.lastJudge = {
-      restX,
-      restY,
-      referenceX: this.activeReferenceX,
-      landing,
-    };
+    this.lastJudge = { restX, restY, referenceX, landing };
     this.state = result.state;
-    this.activeDango = null;
 
     if (landing === 'miss') {
       sound.miss();
@@ -533,8 +772,6 @@ export class GameScene extends Phaser.Scene {
       });
       if (result.state.over) {
         this.endGame();
-      } else {
-        this.time.delayedCall(560, () => this.advanceQueue());
       }
       return;
     }
@@ -545,19 +782,19 @@ export class GameScene extends Phaser.Scene {
 
     if (landing === 'perfect') {
       sound.perfectCombo(result.state.perfectCombo);
-      this.sparkleBurst(restX, restY - this.activeRadius);
+      this.sparkleBurst(restX, restY - p.radius);
       const combo =
         result.state.perfectCombo > 1
           ? `PERFECT x${result.state.perfectCombo}!`
           : 'PERFECT!';
-      this.floatText(restX, restY - this.activeRadius - 46, combo, '#e86a7a', 26);
-    } else if (!this.activePonPlayed) {
+      this.floatText(restX, restY - p.radius - 46, combo, '#e86a7a', 26);
+    } else if (!p.ponPlayed) {
       // A feather-light landing that never made a sound gets one now.
       sound.land();
     }
     this.floatText(
       restX,
-      restY - this.activeRadius - 16,
+      restY - p.radius - 16,
       `+${result.earnedDG} ${CURRENCY}`,
       '#5a8a4a',
       24,
@@ -571,17 +808,32 @@ export class GameScene extends Phaser.Scene {
         '#5a8a4a',
         19,
       );
+      // v3: a stacked Matcha also buys time — while the clock runs.
+      const bonusSeconds = this.feel.timer.matchaBonusSeconds;
+      const beforeMs = this.timer.remainingMs;
+      this.timer = addTimerBonus(this.timer, bonusSeconds);
+      if (this.timer.remainingMs > beforeMs) {
+        this.timerBonusTotalMs += this.timer.remainingMs - beforeMs;
+        sound.timeBonus();
+        this.floatText(
+          GAME_WIDTH / 2,
+          this.cameras.main.scrollY + 128,
+          `+${bonusSeconds}s`,
+          '#5a8a4a',
+          26,
+        );
+        this.refreshTimerText();
+      }
     }
     if (kind === 'golden') {
-      this.floatText(restX, restY - this.activeRadius - 80, 'GOLDEN!', '#c89b00', 26);
+      this.floatText(restX, restY - p.radius - 80, 'GOLDEN!', '#c89b00', 26);
     }
     this.updateHud();
-    this.time.delayedCall(430, () => this.advanceQueue());
   }
 
   /** The previewed NEXT dango becomes current; a new next is drawn. */
   private advanceQueue(): void {
-    if (this.phase === 'over') return;
+    if (this.gameOver) return;
     this.currentEntry = this.nextEntry;
     this.nextEntry = rollSpawn(this.economy, this.feel.physics.sizes);
     this.refreshNextPanel();
@@ -590,7 +842,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Show the hovering preview for the current queue entry. */
   private placeSpawner(): void {
-    if (this.phase === 'over') return;
+    if (this.gameOver || this.timeUp) return;
     if (this.spawner) {
       this.tweens.killTweensOf(this.spawner);
       this.spawner.destroy();
@@ -604,10 +856,15 @@ export class GameScene extends Phaser.Scene {
     const display = this.displayFor(this.radiusFor(this.currentEntry.size));
     this.swayX = this.referenceX();
     const spawner = this.add
-      .image(this.swayX, this.spawnerWorldY(), this.currentEntry.kind)
+      .image(
+        this.swayX,
+        this.spawnerWorldY(),
+        textureKeyForSpawn(this.currentEntry.kind, this.currentEntry.size),
+      )
       .setDisplaySize(display, display)
       .setDepth(10);
     this.spawner = spawner;
+    this.spawnerActive = true;
     if (this.currentEntry.kind === 'golden') {
       // A gentle pulse so the rare guest is impossible to miss.
       const base = spawner.scaleX;
@@ -622,7 +879,6 @@ export class GameScene extends Phaser.Scene {
       });
     }
     this.guide?.setVisible(true);
-    this.phase = 'swaying';
   }
 
   /** Sync the NEXT panel with the queue's upcoming entry. */
@@ -632,26 +888,38 @@ export class GameScene extends Phaser.Scene {
       this.displayFor(this.radiusFor(this.nextEntry.size)) *
       NEXT_PREVIEW_SCALE;
     this.nextImage
-      .setTexture(this.nextEntry.kind)
+      .setTexture(
+        textureKeyForSpawn(this.nextEntry.kind, this.nextEntry.size),
+      )
       .setDisplaySize(display, display);
   }
 
   private endGame(): void {
-    this.phase = 'over';
+    if (this.gameOver) return;
+    this.gameOver = true;
     sound.gameOver();
-    const dg = this.state.totalDG;
-    const heightCm = towerHeightCm(this.state.stacked, this.economy);
-    const { best, isNewRecord } = saveBest(dg, heightCm, this.state.stacked);
+    // Final Height Bonus: the measured height, paid once at closing.
+    const heightCm = this.currentHeightCm();
+    const heightBonusDG = finalHeightBonus(heightCm, this.economy);
+    const totalDG = this.state.totalDG + heightBonusDG;
+    const { best, isNewRecord } = saveBest(
+      totalDG,
+      heightCm,
+      this.state.stacked,
+    );
+    const data: ResultData = {
+      dg: totalDG,
+      heightBonusDG,
+      stacked: this.state.stacked,
+      heightCm,
+      bestDG: best.bestDG,
+      bestHeight: best.bestHeight,
+      bestStacked: best.bestStacked,
+      isNewRecord,
+    };
+    this.lastResult = data;
     this.time.delayedCall(900, () => {
-      this.scene.start('ResultScene', {
-        dg,
-        stacked: this.state.stacked,
-        heightCm,
-        bestDG: best.bestDG,
-        bestHeight: best.bestHeight,
-        bestStacked: best.bestStacked,
-        isNewRecord,
-      });
+      this.scene.start('ResultScene', data);
     });
   }
 
@@ -686,13 +954,14 @@ export class GameScene extends Phaser.Scene {
         const obj = body.gameObject;
         if (!obj || !(obj instanceof Phaser.Physics.Matter.Image)) continue;
         const img = obj;
-        if (this.activeDango && img === this.activeDango) {
-          if (!this.activeCollided) {
-            this.activeCollided = true;
-            const impact = Math.max(this.activePeakSpeed, body.speed);
+        const record = this.pending.find((p) => p.img === img);
+        if (record) {
+          if (!record.collided) {
+            record.collided = true;
+            const impact = Math.max(record.peakSpeed, body.speed);
             if (impact >= 1.6) {
               sound.pon(impact);
-              this.activePonPlayed = true;
+              record.ponPlayed = true;
             }
             if (impact >= 4) this.squash(img, impact);
             if (impact >= 11) {
@@ -762,7 +1031,9 @@ export class GameScene extends Phaser.Scene {
     addSoftPanel(this, 88, HUD_TOP + 22, 176, 62, 0.55)
       .setScrollFactor(0)
       .setDepth(19);
-    addSoftPanel(this, GAME_WIDTH / 2, HUD_TOP + 18, 148, 54, 0.55)
+    // Center cluster (v3): height on the first line, the countdown
+    // under it — the two numbers the player steers by.
+    addSoftPanel(this, GAME_WIDTH / 2, HUD_TOP + 36, 168, 96, 0.55)
       .setScrollFactor(0)
       .setDepth(19);
     addSoftPanel(this, 452, HUD_TOP + 44, 184, 128, 0.55)
@@ -800,7 +1071,7 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(20);
     this.heightText = this.add
-      .text(GAME_WIDTH / 2, HUD_TOP + 6, '0 cm', {
+      .text(GAME_WIDTH / 2, HUD_TOP + 2, '0 cm', {
         fontFamily: '"Zen Maru Gothic", sans-serif',
         fontSize: '20px',
         fontStyle: 'bold',
@@ -809,6 +1080,16 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
       .setDepth(20);
+    this.timerText = this.add
+      .text(GAME_WIDTH / 2, HUD_TOP + 34, '', {
+        fontFamily: '"Mochiy Pop One", "Zen Maru Gothic", sans-serif',
+        fontSize: '27px',
+        color: COLOR_TEXT,
+      })
+      .setOrigin(0.5, 0)
+      .setScrollFactor(0)
+      .setDepth(20);
+    this.refreshTimerText();
 
     // Miss dots (3): filled while a miss is still allowed.
     for (let i = 0; i < 3; i++) {
@@ -826,7 +1107,6 @@ export class GameScene extends Phaser.Scene {
         color: COLOR_TEXT,
       })
       .setOrigin(0, 0)
-      .setScrollFactor(0)
       .setDepth(20);
 
     const soundButton = makeIconButton(
@@ -915,9 +1195,7 @@ export class GameScene extends Phaser.Scene {
 
   private updateHud(): void {
     this.dgText?.setText(`${this.state.totalDG} ${CURRENCY}`);
-    this.heightText?.setText(
-      `${towerHeightCm(this.state.stacked, this.economy)} cm`,
-    );
+    this.refreshHeightReadout();
   }
 
   private updateMissDots(): void {
@@ -933,7 +1211,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private togglePause(): void {
-    if (this.phase === 'over') return;
+    if (this.gameOver) return;
     this.paused = !this.paused;
     if (this.paused) {
       this.matter.world.pause();
@@ -984,33 +1262,48 @@ export class GameScene extends Phaser.Scene {
 
   // ----- debug / playtest hook -------------------------------------------
 
+  private phaseNow(): Phase {
+    if (this.gameOver) return 'over';
+    if (this.spawnerActive) return 'swaying';
+    if (this.pending.length > 0) return 'dropping';
+    return 'waiting';
+  }
+
   private installDebugHook(): void {
     const api: DangoTowerDebug = {
       getState: () => ({
         scene: GAME_SCENE_KEY,
-        phase: this.phase,
+        phase: this.phaseNow(),
         stacked: this.state.stacked,
         misses: this.state.misses,
         totalDG: this.state.totalDG,
         perfectCombo: this.state.perfectCombo,
-        over: this.state.over,
-        bodies: this.stackedDangos.length + (this.activeDango ? 1 : 0),
+        over: this.gameOver,
+        bodies: this.stackedDangos.length + this.pending.length,
         referenceX: this.referenceX(),
-        spawnerKind: this.phase === 'swaying' ? this.currentEntry.kind : null,
-        spawnerSize: this.phase === 'swaying' ? this.currentEntry.size : null,
+        spawnerKind: this.spawnerActive ? this.currentEntry.kind : null,
+        spawnerSize: this.spawnerActive ? this.currentEntry.size : null,
+        spawnerTexture: this.spawner?.texture.key ?? null,
         nextKind: this.nextEntry.kind,
         nextSize: this.nextEntry.size,
+        nextTexture: this.nextImage?.texture.key ?? this.nextEntry.kind,
         // The camera manager is gone once the scene has shut down
         // (result transition) — the debug hook must stay safe to call.
         cameraScrollY: this.cameras?.main?.scrollY ?? this.cameraScroll,
+        heightCm: this.currentHeightCm(),
+        timeLeftSec: this.timer.remainingMs / 1000,
+        timerStarted: this.timer.started,
+        timerExpired: this.timer.expired,
+        timerBonusMs: this.timerBonusTotalMs,
+        pendingCount: this.pending.length,
       }),
       drop: () => {
-        if (this.phase !== 'swaying' || this.paused) return false;
+        if (!this.spawnerActive || this.paused) return false;
         this.drop();
         return true;
       },
       dropAt: (x: number) => {
-        if (this.phase !== 'swaying' || this.paused) return false;
+        if (!this.spawnerActive || this.paused) return false;
         this.debugHoldX = x;
         this.swayX = x;
         this.drop();
@@ -1021,32 +1314,50 @@ export class GameScene extends Phaser.Scene {
         this.nextEntry = { ...this.nextEntry, kind };
         this.refreshNextPanel();
       },
-      getActive: () => {
-        if (!this.activeDango) return null;
-        const body = this.activeDango.body as unknown as MatterBodyLike | null;
-        return {
-          x: this.activeDango.x,
-          y: this.activeDango.y,
-          speed: body?.speed ?? 0,
+      setNextSize: (size: DangoSize) => {
+        this.nextEntry = { ...this.nextEntry, size };
+        this.refreshNextPanel();
+      },
+      forceTimeLeft: (seconds: number) => {
+        if (!this.timer.started) {
+          this.timer = startTimer(this.timer);
+        }
+        const remainingMs = Math.max(0, seconds * 1000);
+        this.timer = {
+          ...this.timer,
+          remainingMs,
+          expired: remainingMs <= 0,
         };
+        this.refreshTimerText();
+        if (this.timer.expired) {
+          this.onTimeUp();
+        }
+      },
+      getActive: () => {
+        const p = this.pending[0];
+        if (!p) return null;
+        const body = p.img.body as unknown as MatterBodyLike | null;
+        return { x: p.img.x, y: p.img.y, speed: body?.speed ?? 0 };
       },
       getInternals: () => {
-        if (!this.activeDango) return null;
-        const body = this.activeDango.body as unknown as MatterBodyLike | null;
+        const p = this.pending[0];
+        if (!p) return null;
+        const body = p.img.body as unknown as MatterBodyLike | null;
         if (!body) return null;
         return {
-          collided: this.activeCollided,
+          collided: p.collided,
           collisionEventsSeen: this.collisionEventsSeen,
           lastPairInfo: this.lastPairInfo,
-          settleStillMs: this.settleStillMs,
-          calmMs: this.calmMs,
-          elapsedMs: this.activeElapsedMs,
+          settleStillMs: p.settleStillMs,
+          calmMs: p.calmMs,
+          elapsedMs: p.elapsedMs,
           speed: body.speed,
           angularSpeed: body.angularSpeed,
           sleeping: body.isSleeping,
         };
       },
       getLastJudge: () => this.lastJudge,
+      getLastResult: () => this.lastResult,
     };
     (window as unknown as { __dangoTower?: DangoTowerDebug }).__dangoTower =
       api;
