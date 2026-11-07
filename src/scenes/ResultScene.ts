@@ -22,6 +22,7 @@ import type {
   LeaderboardEntry,
   SubmitResult,
 } from '../leaderboard';
+import { bgm } from '../systems/bgm';
 import { CURRENCY } from '../systems/EconomyConfig';
 import { isRankingEnabled, leaderboard } from '../systems/LeaderboardClient';
 import { COLOR_ACCENT, COLOR_TEXT, addSoftPanel, bodyText, headingText, makeButton } from './ui';
@@ -72,6 +73,7 @@ export class ResultScene extends Phaser.Scene {
   }
 
   create(data: ResultData): void {
+    bgm.start();
     this.alive = true;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.alive = false;

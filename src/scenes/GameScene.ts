@@ -75,6 +75,7 @@ import {
   loadEconomy,
   loadFeel,
 } from '../systems/EconomyConfig';
+import { bgm } from '../systems/bgm';
 import { isRankingEnabled, leaderboard } from '../systems/LeaderboardClient';
 import {
   buildScoreStats,
@@ -124,6 +125,8 @@ interface PendingDango {
   calmMs: number;
   /** Extra spin damping (yomogi's trait), 0 for the others. */
   angularDampingPerSec: number;
+  /** The dango's size (pitches its stacking voice, v3.2). */
+  size: DangoSize;
 }
 
 /** Debug/playtest surface, also handy from a browser console. */
@@ -277,6 +280,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    bgm.start();
     this.economy = loadEconomy();
     this.balance = loadBalance();
     this.feel = loadFeel();
@@ -705,6 +709,7 @@ export class GameScene extends Phaser.Scene {
       settleStillMs: 0,
       calmMs: 0,
       angularDampingPerSec: params.angularDampingPerSec,
+      size: entry.size,
     });
     sound.drop();
 
@@ -823,6 +828,8 @@ export class GameScene extends Phaser.Scene {
     // Stacked: the dango stays in the world as part of the tower.
     this.stackedDangos.push(dango);
     this.enforceBodyCap();
+    // Its own little voice, pitched by its size (v3.2).
+    sound.voice(kind, p.size);
 
     if (landing === 'perfect') {
       sound.perfectCombo(result.state.perfectCombo);

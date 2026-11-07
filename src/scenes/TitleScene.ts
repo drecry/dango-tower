@@ -11,6 +11,7 @@ import { GAME_WIDTH, GAME_HEIGHT } from '../config/dimensions';
 import { ALL_DANGO_KINDS, BACKGROUND_KEY } from '../constants/assets';
 import { getSavedDisplayName } from '../leaderboard';
 import { loadBest } from '../logic/storage';
+import { bgm } from '../systems/bgm';
 import { leaderboard } from '../systems/LeaderboardClient';
 import { openOptions } from '../systems/OptionsOverlay';
 import { sound } from '../systems/sound';
@@ -33,6 +34,7 @@ export class TitleScene extends Phaser.Scene {
   }
 
   create(): void {
+    bgm.start();
     const best = loadBest();
 
     // Shop background illustration (drawn first, behind everything).
