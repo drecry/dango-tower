@@ -87,7 +87,7 @@ export const loadEconomy = (): Economy => {
     heightBonusEvery: json.tower.heightBonusEvery,
     perfectBonus: json.tower.perfectBonus,
     dangoHeightCm: json.tower.dangoHeightCm,
-    heightBonusPerCm: json.tower.heightBonusPerCm ?? 1,
+    heightBonusPerCm: json.tower.heightBonusPerCm ?? 100,
   };
 };
 

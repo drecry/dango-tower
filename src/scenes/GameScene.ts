@@ -23,7 +23,17 @@
  *   mitarashi sticky, sakura light, yomogi calm...).
  * - HEIGHT: the cm readout is the measured tower height — counter top
  *   surface to the top of the highest settled dango — and at game end
- *   it pays a Final Height Bonus of heightCm x 1 DG.
+ *   it pays a Final Height Bonus of heightCm x 100 DG (rate lives in
+ *   dango-economy.json as heightBonusPerCm).
+ *
+ * v3.1 changes:
+ * - SWAY FIX: the sway center/amplitude are frozen when a dango
+ *   appears and its phase restarts at 0 — the hover no longer jitters
+ *   with the settling pile, teleports when the topmost dango changes,
+ *   or sticks flat against the screen edge.
+ * - RANKING: at closing, the total DG is submitted to the shared
+ *   family leaderboard (game_id "dango-tower") without waiting for
+ *   the reply; the Result screen fills the rank in when it arrives.
  *
  * The background illustration is anchored to the world: the shop
  * counter in the art IS the physics platform, and as the tower grows
@@ -65,6 +75,11 @@ import {
   loadEconomy,
   loadFeel,
 } from '../systems/EconomyConfig';
+import { isRankingEnabled, leaderboard } from '../systems/LeaderboardClient';
+import {
+  buildScoreStats,
+  toDurationSec,
+} from '../systems/ScoreSubmission';
 import { sound } from '../systems/sound';
 import { COLOR_TEXT, addSoftPanel, makeIconButton } from './ui';
 import type { ResultData } from './ResultScene';
@@ -210,6 +225,21 @@ export class GameScene extends Phaser.Scene {
   private stackedDangos: MatterImage[] = [];
   private swayPhase = 0;
   private swayX = GAME_WIDTH / 2;
+  /**
+   * Sway geometry, captured ONCE when a spawner appears (v3.1 fix).
+   *
+   * Before this fix the sway center was the topmost dango's live X,
+   * re-read every frame: the hovering dango jittered along with the
+   * still-settling pile, teleported sideways whenever a new dango
+   * became the topmost, jumped on its first frame because the sine
+   * phase was carried over from the previous dango, and stuck flat
+   * against the screen edge whenever the sine ran past the clamp.
+   * Now the center and the effective amplitude are frozen at spawn,
+   * the phase restarts at 0 (the dango appears exactly at its center),
+   * and the amplitude is pre-shrunk so the swing never clips.
+   */
+  private swayCenterX = GAME_WIDTH / 2;
+  private swayAmpEff = 0;
   private slowDropsLeft = 0;
   private swaySlowActive = false;
   private debugHoldX: number | null = null;
@@ -225,6 +255,10 @@ export class GameScene extends Phaser.Scene {
   private timeUp = false;
   /** Total Matcha time bonus actually applied (playtest diagnostics). */
   private timerBonusTotalMs = 0;
+  /** Golden dango stacked this run (a ranking stat). */
+  private goldenStacked = 0;
+  /** Play time since the first drop (a ranking stat), in ms. */
+  private playElapsedMs = 0;
   private timerText: Phaser.GameObjects.Text | null = null;
   private timerShownLabel = '';
   private timerUrgent = false;
@@ -266,6 +300,8 @@ export class GameScene extends Phaser.Scene {
     this.timer = initialTimer(this.feel.timer.startSeconds);
     this.timeUp = false;
     this.timerBonusTotalMs = 0;
+    this.goldenStacked = 0;
+    this.playElapsedMs = 0;
     this.timerShownLabel = '';
     this.timerUrgent = false;
     this.timerPulse = null;
@@ -355,6 +391,11 @@ export class GameScene extends Phaser.Scene {
       // it. One frame's contribution is clamped so a resume hitch
       // cannot take a bite out of the clock either.
       this.updateTimer(Math.min(deltaMs, 250));
+      // Play time for the ranking stats, on the same accumulated
+      // clock (pausing cannot inflate it either).
+      if (this.timer.started) {
+        this.playElapsedMs += Math.min(deltaMs, 250);
+      }
     }
 
     if (this.spawnerActive) {
@@ -574,15 +615,18 @@ export class GameScene extends Phaser.Scene {
     const spawner = this.spawner;
     if (!spawner) return;
     if (this.currentEntry.kind === 'golden') {
-      // Golden does not sway: it hovers dead-center over the tower top.
-      this.swayX = this.referenceX();
+      // Golden does not sway: it hovers dead-center over the tower top
+      // (the center captured when it appeared).
+      this.swayX = this.swayCenterX;
     } else if (this.debugHoldX !== null) {
       this.swayX = this.debugHoldX;
     } else {
+      // Pure sine around the frozen spawn center: smooth by
+      // construction, and swayAmpEff already guarantees the swing
+      // stays on screen, so no per-frame clamp is needed.
       this.swayPhase += this.swaySpeed() * dt;
-      const center = this.referenceX();
-      const raw = center + this.swayAmplitude() * Math.sin(this.swayPhase);
-      this.swayX = Phaser.Math.Clamp(raw, 46, GAME_WIDTH - 46);
+      this.swayX =
+        this.swayCenterX + this.swayAmpEff * Math.sin(this.swayPhase);
     }
     const y = this.spawnerWorldY();
     spawner.setPosition(this.swayX, y);
@@ -826,6 +870,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
     if (kind === 'golden') {
+      this.goldenStacked += 1;
       this.floatText(restX, restY - p.radius - 80, 'GOLDEN!', '#c89b00', 26);
     }
     this.updateHud();
@@ -854,7 +899,25 @@ export class GameScene extends Phaser.Scene {
     if (this.swaySlowActive) this.slowDropsLeft -= 1;
 
     const display = this.displayFor(this.radiusFor(this.currentEntry.size));
-    this.swayX = this.referenceX();
+    // Freeze the sway geometry for this dango (see swayCenterX note):
+    // center = the tower top's X right now, kept at least 40px of
+    // swing room from each screen edge; amplitude shrunk to fit, so
+    // the motion is one clean sine from spawn to drop. Phase restarts
+    // at 0, so the dango appears exactly at its center — no jump.
+    const amplitude = this.swayAmplitude();
+    const center = Phaser.Math.Clamp(
+      this.referenceX(),
+      86,
+      GAME_WIDTH - 86,
+    );
+    this.swayCenterX = center;
+    this.swayAmpEff = Math.min(
+      amplitude,
+      center - 46,
+      GAME_WIDTH - 46 - center,
+    );
+    this.swayPhase = 0;
+    this.swayX = center;
     const spawner = this.add
       .image(
         this.swayX,
@@ -907,6 +970,23 @@ export class GameScene extends Phaser.Scene {
       heightCm,
       this.state.stacked,
     );
+    // Ranking submission (the Dango Drop way, ADR-0013): fired
+    // WITHOUT awaiting — the result screen opens immediately and the
+    // rank is filled in when the reply arrives. Offline or disabled,
+    // the promise still resolves with the local best inside.
+    const submission = isRankingEnabled()
+      ? leaderboard.submitScore(
+          totalDG,
+          buildScoreStats(
+            {
+              stacked: this.state.stacked,
+              heightCm,
+              goldenCount: this.goldenStacked,
+            },
+            toDurationSec(this.playElapsedMs),
+          ),
+        )
+      : undefined;
     const data: ResultData = {
       dg: totalDG,
       heightBonusDG,
@@ -916,6 +996,7 @@ export class GameScene extends Phaser.Scene {
       bestHeight: best.bestHeight,
       bestStacked: best.bestStacked,
       isNewRecord,
+      submission,
     };
     this.lastResult = data;
     this.time.delayedCall(900, () => {

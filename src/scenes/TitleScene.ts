@@ -9,7 +9,10 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from '../config/dimensions';
 import { ALL_DANGO_KINDS, BACKGROUND_KEY } from '../constants/assets';
+import { getSavedDisplayName } from '../leaderboard';
 import { loadBest } from '../logic/storage';
+import { leaderboard } from '../systems/LeaderboardClient';
+import { openOptions } from '../systems/OptionsOverlay';
 import { sound } from '../systems/sound';
 import {
   COLOR_TEXT,
@@ -64,14 +67,14 @@ export class TitleScene extends Phaser.Scene {
       22,
     ).setOrigin(0.5);
 
-    makeButton(this, GAME_WIDTH / 2, 500, 300, 72, 'PLAY', () => {
+    makeButton(this, GAME_WIDTH / 2, 484, 300, 72, 'PLAY', () => {
       this.scene.start('GameScene');
     });
 
     makeButton(
       this,
       GAME_WIDTH / 2,
-      596,
+      576,
       300,
       56,
       'HOW TO PLAY',
@@ -84,7 +87,7 @@ export class TitleScene extends Phaser.Scene {
     makeButton(
       this,
       GAME_WIDTH / 2,
-      668,
+      644,
       300,
       56,
       'MEET THE DANGO',
@@ -94,12 +97,36 @@ export class TitleScene extends Phaser.Scene {
       22,
     );
 
+    makeButton(
+      this,
+      GAME_WIDTH / 2,
+      712,
+      300,
+      56,
+      'OPTIONS',
+      () => {
+        // Name + sound, the Dango Drop way: an HTML overlay with a
+        // real text input (Phaser has none). Name entry is optional.
+        openOptions({
+          currentName: getSavedDisplayName(),
+          muted: sound.isMuted,
+          onNameChange: (name) => leaderboard.setDisplayName(name),
+          onToggleSound: () => {
+            const muted = sound.toggleMuted();
+            this.soundButtonText?.setText(muted ? 'OFF' : 'ON');
+            return muted;
+          },
+        });
+      },
+      22,
+    );
+
     const bestLine =
       best.bestDG > 0
         ? `BEST  ${best.bestDG} DG  ·  ${best.bestHeight} cm  ·  ${best.bestStacked} dango`
         : 'No tower yet — your first stack is waiting!';
     this.add
-      .text(GAME_WIDTH / 2, 742, bestLine, {
+      .text(GAME_WIDTH / 2, 786, bestLine, {
         fontFamily: '"Zen Maru Gothic", sans-serif',
         fontSize: '19px',
         fontStyle: 'bold',

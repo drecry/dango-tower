@@ -342,10 +342,10 @@ describe('heightCmFromPx (v3: measured bottom-up height)', () => {
 });
 
 describe('finalHeightBonus (v3: paid once at game end)', () => {
-  it('is heightCm x heightBonusPerCm (1 DG per cm by default)', () => {
+  it('is heightCm x heightBonusPerCm (100 DG per cm by default)', () => {
     expect(finalHeightBonus(0)).toBe(0);
-    expect(finalHeightBonus(1)).toBe(1);
-    expect(finalHeightBonus(132)).toBe(132);
+    expect(finalHeightBonus(1)).toBe(100);
+    expect(finalHeightBonus(132)).toBe(13200);
   });
 
   it('follows the configured rate and never goes negative', () => {
@@ -353,12 +353,12 @@ describe('finalHeightBonus (v3: paid once at game end)', () => {
     expect(finalHeightBonus(132, rich)).toBe(264);
     expect(finalHeightBonus(-10)).toBe(0);
     // Fractional cm are floored before paying out.
-    expect(finalHeightBonus(132.9)).toBe(132);
+    expect(finalHeightBonus(132.9)).toBe(13200);
   });
 
-  it('the shipped economy config wires the rate at 1 DG per cm', () => {
-    expect(loadEconomy().heightBonusPerCm).toBe(1);
-    expect(DEFAULT_ECONOMY.heightBonusPerCm).toBe(1);
+  it('the shipped economy config wires the rate at 100 DG per cm', () => {
+    expect(loadEconomy().heightBonusPerCm).toBe(100);
+    expect(DEFAULT_ECONOMY.heightBonusPerCm).toBe(100);
   });
 });
 

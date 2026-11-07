@@ -85,7 +85,7 @@ export const DEFAULT_ECONOMY: Economy = {
   heightBonusEvery: 5,
   perfectBonus: 5,
   dangoHeightCm: 4,
-  heightBonusPerCm: 1,
+  heightBonusPerCm: 100,
 };
 
 export const DEFAULT_BALANCE: Balance = {
