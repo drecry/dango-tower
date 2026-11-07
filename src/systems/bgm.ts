@@ -1,14 +1,18 @@
 /**
  * Background music (Dango Tower).
  *
- * v3.4 — Tower's OWN original track, composed and rendered for this
- * game (76 BPM, F major, 25.3 s seamless loop, -19 LUFS): soft pads,
- * a springy "boyoon" bass whose pitch bounces and settles, and a
- * marimba-like melody that scoops up into each note ("nururin").
- * One track plays across title, game and result — asking for it
- * again is a no-op, so the music never restarts between scenes.
- * (v3.3 borrowed Dango Drop's two tracks; the user wanted Tower to
- * have music of its own.)
+ * Tower's OWN original music, composed and rendered for this game
+ * (v3.4; split into menu/game tracks in v3.6):
+ *   menu  (title / result) -> tower-bgm.mp3: the slow, dreamy one
+ *           (76 BPM, F major, 25.3 s loop, -19 LUFS) — soft pads, a
+ *           springy "boyoon" bass, a scooping "nururin" melody.
+ *   game  (gameplay)       -> game-upbeat.mp3: the lively partner
+ *           (116 BPM, C major, 33.1 s loop, -17 LUFS) — bouncy
+ *           eighth-note poyo bass, backbeat plucks, denser melody.
+ *   hurry (last 10 s)      -> game-hurry.mp3: the game track at
+ *           +14% speed and pitch, for the end-of-clock rush.
+ * Tracks crossfade when the scene (or the clock) switches; asking
+ * for the track that is already playing is a no-op.
  *
  * Mix: the music sits well UNDER the sound effects. The track runs
  * through FILE_GAIN and the BGM master gain, while effects run
@@ -28,15 +32,17 @@ import { sound } from './sound';
 export const midiToFreq = (midi: number): number =>
   440 * Math.pow(2, (midi - 69) / 12);
 
-export type BgmTrack = 'tower';
+export type BgmTrack = 'menu' | 'game' | 'hurry';
 
 const TRACK_URLS: Record<BgmTrack, string> = {
-  tower: `${import.meta.env.BASE_URL}assets/audio/tower-bgm.mp3`,
+  menu: `${import.meta.env.BASE_URL}assets/audio/tower-bgm.mp3`,
+  game: `${import.meta.env.BASE_URL}assets/audio/game-upbeat.mp3`,
+  hurry: `${import.meta.env.BASE_URL}assets/audio/game-hurry.mp3`,
 };
 
 /** BGM master level (the effects master runs at 1.3 — see sound.ts). */
 const BGM_GAIN = 0.5;
-/** Trim for the original track (mastered at -19 LUFS, already soft). */
+/** Trim for the original tracks (mastered soft: -19 / -17 LUFS). */
 const FILE_GAIN = 0.8;
 /** Crossfade length when switching tracks, in seconds. */
 const FADE_SEC = 0.4;
@@ -105,7 +111,7 @@ class BgmPlayer {
    * Start (or switch) the music for a scene. Idempotent: asking for
    * the track that is already playing does nothing.
    */
-  start(track: BgmTrack = 'tower'): void {
+  start(track: BgmTrack = 'game'): void {
     this.want = track;
     const ctx = sound.context();
     if (!ctx) return;

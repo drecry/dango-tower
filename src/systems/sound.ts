@@ -268,6 +268,29 @@ export class SoundFX {
     this.play(tones);
   }
 
+  /**
+   * Countdown tick (v3.6): a soft wooden knock, once per second
+   * over the last 10 seconds; stronger over the last 3.
+   */
+  tick(strong: boolean): void {
+    this.play([
+      {
+        freq: strong ? 1950 : 1560,
+        at: 0,
+        dur: 0.045,
+        type: 'square',
+        vol: strong ? 0.075 : 0.045,
+      },
+      {
+        freq: strong ? 980 : 780,
+        at: 0,
+        dur: 0.06,
+        type: 'sine',
+        vol: strong ? 0.06 : 0.04,
+      },
+    ]);
+  }
+
   /** A gentle landing when no impact sound played first. */
   land(): void {
     this.playBoing({ base: 390, at: 0, dur: 0.2, vol: 0.16, wobbleHz: 8 });

@@ -144,6 +144,10 @@ export interface DangoTowerDebug {
     over: boolean;
     bodies: number;
     referenceX: number;
+    /** Debug: live sway position and the frozen sway geometry. */
+    spawnerX: number | null;
+    swayCenterX: number;
+    swayAmpEff: number;
     spawnerKind: DangoKind | null;
     spawnerSize: DangoSize | null;
     spawnerTexture: string | null;
@@ -232,20 +236,33 @@ export class GameScene extends Phaser.Scene {
   private swayPhase = 0;
   private swayX = GAME_WIDTH / 2;
   /**
-   * Sway geometry, captured ONCE when a spawner appears (v3.1 fix).
+   * Sway geometry (v3.1, refined in v3.6).
    *
-   * Before this fix the sway center was the topmost dango's live X,
-   * re-read every frame: the hovering dango jittered along with the
-   * still-settling pile, teleported sideways whenever a new dango
-   * became the topmost, jumped on its first frame because the sine
-   * phase was carried over from the previous dango, and stuck flat
-   * against the screen edge whenever the sine ran past the clamp.
-   * Now the center and the effective amplitude are frozen at spawn,
-   * the phase restarts at 0 (the dango appears exactly at its center),
-   * and the amplitude is pre-shrunk so the swing never clips.
+   * v3.1 froze the center/amplitude at spawn (before that, the live
+   * topmost X jittered and teleported the sway). But freezing at
+   * spawn has its own flaw, visible "sometimes" in fast play: the
+   * spawner appears 0.7 s after a drop, often while the previous
+   * dango is still rolling into place — the frozen center then
+   * points at where the tower top WAS, not where it settles, and
+   * the whole swing orbits a stale point. Two more rough edges:
+   * near a screen edge the pre-shrunk amplitude could collapse to
+   * almost nothing (a dango that barely moves), and the speed
+   * stepped instantly whenever a dango was judged mid-sway.
+   *
+   * v3.6: the center GLIDES after the live tower top with a
+   * smooth exponential approach (the judged pile is static, so
+   * the target only moves at judge moments — no jitter, no stale
+   * freeze); the center is shifted inward just enough to always
+   * keep a real swing; the speed eases toward its target instead
+   * of stepping; and the swing eases in over the first 0.35 s so
+   * the dango does not appear already moving at full speed.
    */
   private swayCenterX = GAME_WIDTH / 2;
   private swayAmpEff = 0;
+  /** Seconds since the current spawner appeared (swing ease-in). */
+  private swaySpawnAgeSec = 0;
+  /** Smoothed sway speed (eases toward swaySpeed()). */
+  private swaySpeedCurrent = 0;
   private slowDropsLeft = 0;
   private swaySlowActive = false;
   private debugHoldX: number | null = null;
@@ -269,6 +286,9 @@ export class GameScene extends Phaser.Scene {
   private timerShownLabel = '';
   private timerUrgent = false;
   private timerPulse: Phaser.Tweens.Tween | null = null;
+  /** v3.6 hurry-up state: faster BGM + per-second ticks under 10 s. */
+  private hurryActive = false;
+  private lastTickSec = -1;
   private lastResult: ResultData | null = null;
 
   private dgText: Phaser.GameObjects.Text | null = null;
@@ -283,7 +303,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    bgm.start('tower');
+    bgm.start('game');
     this.economy = loadEconomy();
     this.balance = loadBalance();
     this.feel = loadFeel();
@@ -307,6 +327,8 @@ export class GameScene extends Phaser.Scene {
     this.timer = initialTimer(this.feel.timer.startSeconds);
     this.timeUp = false;
     this.timerBonusTotalMs = 0;
+    this.hurryActive = false;
+    this.lastTickSec = -1;
     this.goldenStacked = 0;
     this.playElapsedMs = 0;
     this.timerShownLabel = '';
@@ -512,6 +534,26 @@ export class GameScene extends Phaser.Scene {
         this.timerText?.setScale(1);
       }
     }
+    // Hurry-up (v3.6): under 10 seconds the music switches to the
+    // faster, higher hurry variant and a soft tick counts the
+    // seconds (stronger over the last 3). If a Matcha bonus lifts
+    // the clock back above 12 s the normal game track resumes —
+    // the 2 s gap keeps the music from flapping at the boundary.
+    if (urgent) {
+      if (!this.hurryActive) {
+        this.hurryActive = true;
+        bgm.start('hurry');
+      }
+      const sec = Math.ceil(this.timer.remainingMs / 1000);
+      if (sec !== this.lastTickSec) {
+        this.lastTickSec = sec;
+        sound.tick(sec <= 3);
+      }
+    } else if (this.hurryActive && this.timer.remainingMs > 12_000) {
+      this.hurryActive = false;
+      this.lastTickSec = -1;
+      bgm.start('game');
+    }
   }
 
   private refreshTimerText(): void {
@@ -605,6 +647,28 @@ export class GameScene extends Phaser.Scene {
     return this.topmostDango()?.x ?? this.feel.physics.platformCenterX;
   }
 
+  /**
+   * Sway center + effective amplitude for the current tower top.
+   * The center is shifted inward just enough to always keep at
+   * least ~70px of swing (or the full amplitude when smaller), so
+   * a tower top near the screen edge never collapses the swing.
+   */
+  private swayGeometry(): { center: number; ampEff: number } {
+    const amplitude = this.swayAmplitude();
+    const minAmp = Math.min(amplitude, 70);
+    const center = Phaser.Math.Clamp(
+      this.referenceX(),
+      46 + minAmp,
+      GAME_WIDTH - 46 - minAmp,
+    );
+    const ampEff = Math.min(
+      amplitude,
+      center - 46,
+      GAME_WIDTH - 46 - center,
+    );
+    return { center, ampEff };
+  }
+
   private topmostDango(): MatterImage | null {
     let best: MatterImage | null = null;
     for (const dango of this.stackedDangos) {
@@ -621,19 +685,36 @@ export class GameScene extends Phaser.Scene {
   private updateSway(dt: number): void {
     const spawner = this.spawner;
     if (!spawner) return;
+    this.swaySpawnAgeSec += dt;
+    // The center glides after the live tower top with a smooth
+    // exponential approach (v3.6). The reference only changes at
+    // judge moments (the pile itself is static once judged), so
+    // the glide simply re-centers the swing over ~0.5 s whenever a
+    // new dango becomes the top — instead of freezing on the stale
+    // point that was current when the spawner appeared mid-roll.
+    if (this.debugHoldX === null) {
+      const g = this.swayGeometry();
+      const step = Math.min(1, dt * 3.5);
+      this.swayCenterX += (g.center - this.swayCenterX) * step;
+      this.swayAmpEff += (g.ampEff - this.swayAmpEff) * step;
+    }
     if (this.currentEntry.kind === 'golden') {
-      // Golden does not sway: it hovers dead-center over the tower top
-      // (the center captured when it appeared).
+      // Golden does not sway: it hovers dead-center over the tower top.
       this.swayX = this.swayCenterX;
     } else if (this.debugHoldX !== null) {
       this.swayX = this.debugHoldX;
     } else {
-      // Pure sine around the frozen spawn center: smooth by
-      // construction, and swayAmpEff already guarantees the swing
-      // stays on screen, so no per-frame clamp is needed.
-      this.swayPhase += this.swaySpeed() * dt;
+      // Ease the speed toward its target (the stacked count, and so
+      // the target, changes when a dango is judged mid-sway), and
+      // ease the swing itself in over the first 0.35 s.
+      const targetSpeed = this.swaySpeed();
+      this.swaySpeedCurrent +=
+        (targetSpeed - this.swaySpeedCurrent) * Math.min(1, dt * 4);
+      this.swayPhase += this.swaySpeedCurrent * dt;
+      const ramp = Math.min(1, this.swaySpawnAgeSec / 0.35);
+      const ease = ramp * ramp * (3 - 2 * ramp);
       this.swayX =
-        this.swayCenterX + this.swayAmpEff * Math.sin(this.swayPhase);
+        this.swayCenterX + this.swayAmpEff * ease * Math.sin(this.swayPhase);
     }
     const y = this.spawnerWorldY();
     spawner.setPosition(this.swayX, y);
@@ -910,25 +991,19 @@ export class GameScene extends Phaser.Scene {
     if (this.swaySlowActive) this.slowDropsLeft -= 1;
 
     const display = this.displayFor(this.radiusFor(this.currentEntry.size));
-    // Freeze the sway geometry for this dango (see swayCenterX note):
-    // center = the tower top's X right now, kept at least 40px of
-    // swing room from each screen edge; amplitude shrunk to fit, so
-    // the motion is one clean sine from spawn to drop. Phase restarts
-    // at 0, so the dango appears exactly at its center — no jump.
-    const amplitude = this.swayAmplitude();
-    const center = Phaser.Math.Clamp(
-      this.referenceX(),
-      86,
-      GAME_WIDTH - 86,
-    );
-    this.swayCenterX = center;
-    this.swayAmpEff = Math.min(
-      amplitude,
-      center - 46,
-      GAME_WIDTH - 46 - center,
-    );
+    // Sway geometry starts from the current tower top (see the
+    // swayCenterX note): while the previous dango is unjudged the
+    // center keeps gliding after the live top, then freezes. Phase
+    // restarts at 0 and the swing eases in, so the dango appears at
+    // its center and gently starts moving — no jump, no instant
+    // full-speed start.
+    const g = this.swayGeometry();
+    this.swayCenterX = g.center;
+    this.swayAmpEff = g.ampEff;
     this.swayPhase = 0;
-    this.swayX = center;
+    this.swaySpawnAgeSec = 0;
+    this.swaySpeedCurrent = this.swaySpeed();
+    this.swayX = g.center;
     const spawner = this.add
       .image(
         this.swayX,
@@ -1411,6 +1486,9 @@ export class GameScene extends Phaser.Scene {
         over: this.gameOver,
         bodies: this.stackedDangos.length + this.pending.length,
         referenceX: this.referenceX(),
+        spawnerX: this.spawnerActive ? Math.round(this.swayX * 10) / 10 : null,
+        swayCenterX: Math.round(this.swayCenterX * 10) / 10,
+        swayAmpEff: Math.round(this.swayAmpEff * 10) / 10,
         spawnerKind: this.spawnerActive ? this.currentEntry.kind : null,
         spawnerSize: this.spawnerActive ? this.currentEntry.size : null,
         spawnerTexture: this.spawner?.texture.key ?? null,
