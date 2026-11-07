@@ -56,7 +56,7 @@ type Boing = {
   type?: OscillatorType;
 };
 
-/** Effects master level. The BGM master runs at 0.5 (bgm.ts), so
+/** Effects master level. The BGM master runs at 0.37 (bgm.ts), so
  * effects sit clearly on top of the music (v3.3 mix). */
 const SE_MASTER_GAIN = 1.3;
 

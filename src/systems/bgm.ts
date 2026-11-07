@@ -41,7 +41,7 @@ const TRACK_URLS: Record<BgmTrack, string> = {
 };
 
 /** BGM master level (the effects master runs at 1.3 — see sound.ts). */
-const BGM_GAIN = 0.5;
+const BGM_GAIN = 0.37;
 /** Trim for the original tracks (mastered soft: -19 / -17 LUFS). */
 const FILE_GAIN = 0.8;
 /** Crossfade length when switching tracks, in seconds. */
