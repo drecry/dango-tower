@@ -34,7 +34,7 @@ export class TitleScene extends Phaser.Scene {
   }
 
   create(): void {
-    bgm.start('title');
+    bgm.start('tower');
     const best = loadBest();
 
     // Shop background illustration (drawn first, behind everything).

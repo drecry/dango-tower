@@ -193,15 +193,18 @@ export class SoundFX {
   }
 
   /**
-   * "Poyoon" when a dango bumps into the counter or the tower.
+   * "Poyoon" when a dango bumps into the counter or the floor.
    * `strength` is the impact speed (Matter px/step, roughly 0..20):
    * harder hits spring deeper, longer and a little louder; a light
-   * touch is just a small "poyo".
+   * touch is just a small "poyo". A slight random detune keeps
+   * repeated hits from sounding stamped from the same mold.
    */
   pon(strength: number): void {
     const s = Math.min(1, Math.max(0, strength / 14));
+    const detune = 0.96 + Math.random() * 0.08;
+    const base = (275 - s * 65) * detune;
     this.playBoing({
-      base: 275 - s * 65,
+      base,
       at: 0,
       dur: 0.24 + s * 0.3,
       vol: 0.15 + s * 0.15,
@@ -209,10 +212,37 @@ export class SoundFX {
     });
     this.play([
       {
-        freq: (275 - s * 65) * 2,
+        freq: base * 2,
         at: 0.012,
         dur: 0.07,
         type: 'triangle',
+        vol: 0.05,
+      },
+    ]);
+  }
+
+  /**
+   * "Boyoon" when a falling dango bumps into ANOTHER dango (v3.4):
+   * rounder and longer than the counter's `pon` — two soft things
+   * meeting. Same strength scaling and detune idea as `pon`.
+   */
+  ponDango(strength: number): void {
+    const s = Math.min(1, Math.max(0, strength / 14));
+    const detune = 0.95 + Math.random() * 0.1;
+    const base = (245 - s * 55) * detune;
+    this.playBoing({
+      base,
+      at: 0,
+      dur: 0.34 + s * 0.38,
+      vol: 0.17 + s * 0.15,
+      wobbleHz: 6 - s,
+    });
+    this.play([
+      {
+        freq: base * 2,
+        at: 0.015,
+        dur: 0.09,
+        type: 'sine',
         vol: 0.05,
       },
     ]);

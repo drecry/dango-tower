@@ -120,6 +120,8 @@ interface PendingDango {
   peakSpeed: number;
   collided: boolean;
   ponPlayed: boolean;
+  /** elapsedMs of this dango's last impact sound (cooldown, v3.4). */
+  lastPonMs: number;
   settleStillMs: number;
   /** Ms spent slow but not still (rolling creep). */
   calmMs: number;
@@ -280,7 +282,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    bgm.start('game');
+    bgm.start('tower');
     this.economy = loadEconomy();
     this.balance = loadBalance();
     this.feel = loadFeel();
@@ -706,6 +708,7 @@ export class GameScene extends Phaser.Scene {
       peakSpeed: 0,
       collided: false,
       ponPlayed: false,
+      lastPonMs: -1000,
       settleStillMs: 0,
       calmMs: 0,
       angularDampingPerSec: params.angularDampingPerSec,
@@ -1044,13 +1047,30 @@ export class GameScene extends Phaser.Scene {
         const img = obj;
         const record = this.pending.find((p) => p.img === img);
         if (record) {
+          // Impact boings (v3.4): EVERY solid hit can sound, not
+          // just the first — a dango bouncing and rolling into its
+          // friends keeps going "boyoon". Hitting another dango
+          // sounds rounder than hitting the counter. A short
+          // per-dango cooldown keeps a rattling pile from turning
+          // into a drum solo.
+          const other = body === pair.bodyA ? pair.bodyB : pair.bodyA;
+          const impactNow = Math.max(
+            body.speed,
+            record.collided ? 0 : record.peakSpeed,
+          );
+          const threshold = record.collided ? 2.4 : 1.6;
+          if (
+            impactNow >= threshold &&
+            record.elapsedMs - record.lastPonMs >= 130
+          ) {
+            if (other.label === 'dango') sound.ponDango(impactNow);
+            else sound.pon(impactNow);
+            record.ponPlayed = true;
+            record.lastPonMs = record.elapsedMs;
+          }
           if (!record.collided) {
             record.collided = true;
             const impact = Math.max(record.peakSpeed, body.speed);
-            if (impact >= 1.6) {
-              sound.pon(impact);
-              record.ponPlayed = true;
-            }
             if (impact >= 4) this.squash(img, impact);
             if (impact >= 11) {
               this.nudgeAmp = Math.min(7, 2.5 + (impact - 11) * 0.5);

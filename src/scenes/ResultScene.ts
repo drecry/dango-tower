@@ -73,7 +73,7 @@ export class ResultScene extends Phaser.Scene {
   }
 
   create(data: ResultData): void {
-    bgm.start('title');
+    bgm.start('tower');
     this.alive = true;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.alive = false;
